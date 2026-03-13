@@ -1,13 +1,11 @@
 #!/bin/bash
 set -e
 
-SRC=src/main.cpp
 OUT=bin
-
 mkdir -p $OUT
 
 echo "[*] Building stub..."
-clang++ -shared -fPIC -frtti -target aarch64-linux-android34 -o $OUT/stub.so - << 'STUB'
+cat > $TMPDIR/stub.cpp << 'STUB'
 #include <typeinfo>
 namespace android {
     class VectorImpl { public: virtual ~VectorImpl() {} };
@@ -15,13 +13,10 @@ namespace android {
 }
 const std::type_info& sortedvector_typeinfo = typeid(android::SortedVectorImpl);
 STUB
+clang++ -shared -fPIC -frtti -target aarch64-linux-android34 -o $OUT/stub.so $TMPDIR/stub.cpp
 
-echo "[*] Building stratum..."
-clang++ $SRC \
-  -std=c++17 \
-  -target aarch64-linux-android34 \
-  -D'__BIONIC_AVAILABILITY_GUARD(x)=1' \
-  -D__BIONIC__ \
+INCLUDES="\
+  -Iinclude \
   -Iinclude/v34/arm64/include/frameworks/native/libs/gui/include \
   -Iinclude/v34/arm64/include/frameworks/native/libs/binder/include \
   -Iinclude/v34/arm64/include/frameworks/native/libs/ui/include \
@@ -50,11 +45,19 @@ clang++ $SRC \
   -Iinclude/v34/arm64/include/generated-headers/system/libhidl/transport/manager/1.0/android.hidl.manager@1.0_genc++_headers/gen \
   -Iinclude/v34/arm64/include/generated-headers/hardware/interfaces/media/1.0/android.hardware.media@1.0_genc++_headers/gen \
   -Iinclude/v34/arm64/include/system/libhwbinder/include \
-  -Iinclude/logging/liblog/include \
-  -L/system/lib64 \
-  -lgui -lui -lEGL -lGLESv2 -lbinder -lutils -llog \
-  -Wl,--allow-shlib-undefined \
-  -Wl,--unresolved-symbols=ignore-all \
-  -o $OUT/stratum
+  -Iinclude/logging/liblog/include"
 
-echo "[*] Done! Binaries in $OUT/"
+FLAGS="-std=c++17 -target aarch64-linux-android34 -D__BIONIC__ -w -include $(dirname $0)/../include/compat.h"
+LIBS="-L/system/lib64 -lgui -lui -lEGL -lGLESv2 -lbinder -lutils -llog -Wl,--allow-shlib-undefined -Wl,--unresolved-symbols=ignore-all"
+
+TARGET=${1:-example}
+
+if [ "$TARGET" = "example" ]; then
+    echo "[*] Building stratum..."
+    clang++ $FLAGS $INCLUDES src/main.cpp examples/example.cpp $LIBS -o $OUT/stratum
+elif [ "$TARGET" = "all" ]; then
+    echo "[*] Building stratum..."
+    clang++ $FLAGS $INCLUDES src/main.cpp examples/example.cpp $LIBS -o $OUT/stratum
+fi
+
+echo "[*] Done! Binary at $OUT/stratum"

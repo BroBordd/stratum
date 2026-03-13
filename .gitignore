@@ -1,0 +1,5 @@
+bin/
+include/v34
+include/logging
+include/native
+$TMPDIR

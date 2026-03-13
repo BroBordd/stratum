@@ -1,0 +1,1 @@
+#define __BIONIC_AVAILABILITY_GUARD(x) 1
