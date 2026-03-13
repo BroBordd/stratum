@@ -40,7 +40,7 @@ stratum/
 
 ## Setup
 
-You need AOSP vendor headers matching your device. Place them under ```binclude/```:
+You need AOSP vendor headers matching your device. Place them under ```include/```:
 
 ```
 include/
