@@ -54,10 +54,10 @@ TARGET=${1:-example}
 
 if [ "$TARGET" = "example" ]; then
     echo "[*] Building stratum..."
-    clang++ $FLAGS $INCLUDES src/main.cpp examples/example.cpp $LIBS -o $OUT/stratum
+    clang++ $FLAGS $INCLUDES src/main.cpp examples/gradient.cpp $LIBS -o $OUT/stratum
 elif [ "$TARGET" = "all" ]; then
     echo "[*] Building stratum..."
-    clang++ $FLAGS $INCLUDES src/main.cpp examples/example.cpp $LIBS -o $OUT/stratum
+    clang++ $FLAGS $INCLUDES src/main.cpp examples/gradient.cpp $LIBS -o $OUT/stratum
 fi
 
 echo "[*] Done! Binary at $OUT/stratum"
