@@ -5,6 +5,31 @@ OUT=bin
 ROOT=$(dirname $0)/..
 mkdir -p $OUT
 
+usage() {
+    echo "Usage: $0 [options] [example...]"
+    echo "  -l, --lib-only       build libstratum.so only, skip examples"
+    echo "  -e, --examples-only  skip rebuilding lib (examples only)"
+    echo "  -h, --help           show this help"
+    echo ""
+    echo "  example args: specific example name(s) to build (default: all)"
+    echo "  e.g: $0 lava pulse"
+    exit 0
+}
+
+BUILD_LIB=1
+BUILD_EXAMPLES=1
+ONLY=()
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -l|--lib-only)       BUILD_EXAMPLES=0; shift ;;
+        -e|--examples-only)  BUILD_LIB=0;      shift ;;
+        -h|--help)           usage ;;
+        -*) echo "Unknown option: $1"; usage ;;
+        *)  ONLY+=("$1");    shift ;;
+    esac
+done
+
 INCLUDES="\
   -I$ROOT/include \
   -I$ROOT/include/v34/arm64/include/frameworks/native/libs/gui/include \
@@ -40,9 +65,9 @@ INCLUDES="\
 FLAGS="-std=c++17 -target aarch64-linux-android34 -D__BIONIC__ -w -include $ROOT/include/compat.h"
 LIBS="-L/system/lib64 -lgui -lui -lEGL -lGLESv2 -lbinder -lutils -llog -Wl,--allow-shlib-undefined -Wl,--unresolved-symbols=ignore-all"
 
-# stub
-echo "[*] Building stub..."
-cat > $ROOT/include/stub.cpp << 'STUB'
+if [[ $BUILD_LIB -eq 1 ]]; then
+    echo "[*] Building stub..."
+    cat > $ROOT/include/stub.cpp << 'STUB'
 #include <typeinfo>
 namespace android {
     class VectorImpl { public: virtual ~VectorImpl() {} };
@@ -50,18 +75,33 @@ namespace android {
 }
 const std::type_info& sortedvector_typeinfo = typeid(android::SortedVectorImpl);
 STUB
-clang++ -shared -fPIC -frtti -target aarch64-linux-android34 -o $OUT/stub.so $ROOT/include/stub.cpp
-rm $ROOT/include/stub.cpp
+    clang++ -shared -fPIC -frtti -target aarch64-linux-android34 -o $OUT/stub.so $ROOT/include/stub.cpp
+    rm $ROOT/include/stub.cpp
 
-# stratum lib
-echo "[*] Building libstratum.so..."
-clang++ $FLAGS $INCLUDES -shared -fPIC $ROOT/src/main.cpp $LIBS -o $OUT/libstratum.so
+    echo "[*] Building libstratum.so..."
+    clang++ $FLAGS $INCLUDES -shared -fPIC $ROOT/src/main.cpp $LIBS -o $OUT/libstratum.so
+fi
 
-# examples
-for f in $ROOT/examples/*.cpp; do
-    name=$(basename $f .cpp)
-    echo "[*] Building example: $name..."
-    clang++ $FLAGS $INCLUDES -L$OUT $f $LIBS -lstratum -o $OUT/$name
-done
+if [[ $BUILD_EXAMPLES -eq 1 ]]; then
+    if [[ ${#ONLY[@]} -gt 0 ]]; then
+        targets=()
+        for name in "${ONLY[@]}"; do
+            f=$ROOT/examples/$name.cpp
+            if [[ ! -f $f ]]; then
+                echo "[!] Example not found: $name"
+                exit 1
+            fi
+            targets+=("$f")
+        done
+    else
+        targets=($ROOT/examples/*.cpp)
+    fi
+
+    for f in "${targets[@]}"; do
+        name=$(basename $f .cpp)
+        echo "[*] Building example: $name..."
+        clang++ $FLAGS $INCLUDES -L$OUT $f $LIBS -lstratum -o $OUT/$name
+    done
+fi
 
 echo "[*] Done! Run examples with: bash scripts/run_example.sh <name>"
