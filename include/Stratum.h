@@ -8,6 +8,7 @@ public:
 
     bool init();
     void onFrame(std::function<void(float t)> cb);
+    void stop();
     void run();
 
 private:

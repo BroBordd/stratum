@@ -5,6 +5,7 @@
 #include <EGL/egl.h>
 #include <GLES2/gl2.h>
 #include <unistd.h>
+#include <time.h>
 #include <functional>
 
 using namespace android;
@@ -18,6 +19,7 @@ struct Stratum::Impl {
     EGLSurface esurf;
     EGLContext ctx;
     int w, h;
+    bool running = true;
     std::function<void(float)> frameCb;
 };
 
@@ -80,12 +82,21 @@ void Stratum::onFrame(std::function<void(float t)> cb) {
     mImpl->frameCb = cb;
 }
 
+void Stratum::stop() {
+    mImpl->running = false;
+}
+
 void Stratum::run() {
-    float t = 0.0f;
-    while (true) {
+    struct timespec start, now;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+
+    while (mImpl->running) {
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        float t = (now.tv_sec - start.tv_sec) +
+                  (now.tv_nsec - start.tv_nsec) / 1e9f;
+
         if (mImpl->frameCb) mImpl->frameCb(t);
         eglSwapBuffers(mImpl->dpy, mImpl->esurf);
-        t += 0.016f;
         usleep(16667);
     }
 }
