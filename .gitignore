@@ -1,5 +1,5 @@
 # build outputs
-bin/
+./bin/
 *.zip
 
 # temp
