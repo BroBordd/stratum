@@ -4,7 +4,7 @@ LOG=/data/local/tmp/stratum/boot.log
 > $LOG
 echo "$(date) post-fs-data started" >> $LOG
 
-# stage 1
+# stage 1 - waiting
 echo 100 > /sys/class/timed_output/vibrator/enable
 
 # wait for surfaceflinger
