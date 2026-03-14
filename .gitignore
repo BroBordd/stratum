@@ -1,5 +1,13 @@
+# build outputs
 bin/
-include/v34
-include/logging
-include/native
-$TMPDIR
+*.zip
+
+# temp
+*.o
+*.d
+
+# editor
+.vscode/
+.idea/
+*.swp
+*~
