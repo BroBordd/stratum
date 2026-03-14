@@ -1,6 +1,6 @@
 id=stratum-boot
 name=Stratum Boot Overlay
-author=bedoo
+author=BrotherBoard
 version=1.0
 versionCode=1
 description=Stratum GLES overlay at boot. Runs on top of bootanimation, exits into OneUI.

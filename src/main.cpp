@@ -308,6 +308,7 @@ bool Stratum::init() {
     eglMakeCurrent(mImpl->dpy, mImpl->esurf, mImpl->esurf, mImpl->ctx);
 
     mImpl->inputDevs = open_input_devices();
+    Stratum::log("stratum", "init() done, %zu input devices", mImpl->inputDevs.size());
     return true;
 }
 
@@ -339,6 +340,7 @@ void Stratum::log(const char* tag, const char* fmt, ...) {
 }
 
 void Stratum::run() {
+    Stratum::log("stratum", "run() started, w=%d h=%d", mImpl->w, mImpl->h);
     mImpl->inputThread = std::thread([this]{ mImpl->inputLoop(); });
 
     struct timespec start, now;
