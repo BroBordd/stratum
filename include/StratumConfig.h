@@ -26,5 +26,6 @@ namespace StratumConfig {
     constexpr int         BRIGHTNESS_MIN  = 0;
     constexpr int         BRIGHTNESS_MAX  = 255;
 
+    constexpr const char* REAL_BOOTANIM = "/data/local/tmp/bootanimation.real";
 }
 
