@@ -118,6 +118,21 @@ int main() {
 }
 ```
 
+## KernelSU Module
+
+Stratum ships a ready-to-flash KernelSU module (`stratum-boot.zip`) that installs the binary and libraries to `/system/bin` and `/system/lib64`, and runs the boot menu automatically via `post-fs-data.sh` before the Android framework starts.
+
+```
+stratum-boot/
+├── module.prop
+├── post-fs-data.sh
+└── system/
+    ├── bin/stratum, stratum_binary
+    └── lib64/libstratum.so, stub.so
+```
+
+Flash via KSU manager like any other module. No Magisk required.
+
 ## Building
 
 Stratum uses private Android framework APIs (`libgui`, `libui`). It must be built inside the AOSP tree or with a vendor NDK that exposes these libraries.
