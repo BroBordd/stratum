@@ -131,7 +131,7 @@ stratum-boot/
     └── lib64/libstratum.so, stub.so
 ```
 
-Flash via KSU manager like any other module. No Magisk required.
+Built via `scripts/build_module.sh`. No Magisk required.
 
 ## Building
 
