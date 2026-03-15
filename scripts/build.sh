@@ -7,12 +7,12 @@ mkdir -p $OUT
 
 usage() {
     echo "Usage: $0 [options] [example...]"
-    echo "  -l, --lib-only       build libstratum.so only, skip examples"
-    echo "  -e, --examples-only  skip rebuilding lib (examples only)"
+    echo "  -l, --lib-only       build libstratum.so only, skip apps"
+    echo "  -e, --examples-only  skip rebuilding lib (apps only)"
     echo "  -h, --help           show this help"
     echo ""
-    echo "  example args: specific example name(s) to build (default: all)"
-    echo "  e.g: $0 lava pulse"
+    echo "  example args: specific app name(s) to build (default: all)"
+    echo "  e.g: $0 terminal brickbreaker"
     exit 0
 }
 
@@ -86,22 +86,24 @@ if [[ $BUILD_EXAMPLES -eq 1 ]]; then
     if [[ ${#ONLY[@]} -gt 0 ]]; then
         targets=()
         for name in "${ONLY[@]}"; do
-            f=$ROOT/examples/$name.cpp
-            if [[ ! -f $f ]]; then
-                echo "[!] Example not found: $name"
+            f=""
+            [[ -f $ROOT/apps/utils/$name.cpp ]] && f=$ROOT/apps/utils/$name.cpp
+            [[ -f $ROOT/apps/demos/$name.cpp ]] && f=$ROOT/apps/demos/$name.cpp
+            if [[ -z $f ]]; then
+                echo "[!] App not found: $name"
                 exit 1
             fi
             targets+=("$f")
         done
     else
-        targets=($ROOT/examples/*.cpp)
+        targets=($ROOT/apps/utils/*.cpp $ROOT/apps/demos/*.cpp)
     fi
 
     for f in "${targets[@]}"; do
         name=$(basename $f .cpp)
-        echo "[*] Building example: $name..."
+        echo "[*] Building: $name..."
         clang++ $FLAGS $INCLUDES -L$OUT $f $LIBS -lstratum -o $OUT/$name
     done
 fi
 
-echo "[*] Done! Run examples with: bash scripts/run_example.sh <name>"
+echo "[*] Done! Run with: bash scripts/run_example.sh <name>"
