@@ -153,11 +153,17 @@ void main() {
 }
 )";
 
+// max chars per single draw call — increase if you ever draw longer strings
+static const int TEXT_MAX_CHARS = 256;
+
 class TextRenderer {
 public:
     GLuint prog = 0, tex = 0, vbo = 0;
     GLint  posLoc, uvLoc, texLoc, colorLoc;
     float  aspect = 1.0f;
+
+    // pre-allocated scratch buffer — no heap alloc per frame
+    float _vbuf[TEXT_MAX_CHARS * 6 * 4];
 
     void init(float asp) {
         aspect = asp;
@@ -190,6 +196,9 @@ public:
         prog = glCreateProgram();
         glAttachShader(prog, vs); glAttachShader(prog, fs);
         glLinkProgram(prog);
+        // shaders are linked — release them
+        glDetachShader(prog, vs); glDeleteShader(vs);
+        glDetachShader(prog, fs); glDeleteShader(fs);
 
         posLoc   = glGetAttribLocation(prog,  "pos");
         uvLoc    = glGetAttribLocation(prog,  "uv");
@@ -206,7 +215,6 @@ public:
         _drawChars(str, len, x, y, size, r, g, b, a);
     }
 
-    // wraps at word boundaries, lineH = line height multiplier (default 1.5)
     void drawWrapped(const char* str, float x, float y, float size, float maxW,
                      float r, float g, float b, float a = 1.0f, float lineH = 1.5f) {
         if (!prog || !str) return;
@@ -218,7 +226,6 @@ public:
 
         const char* p = str;
         while (*p) {
-            // collect word
             int wlen = 0;
             while (*p && *p != ' ' && *p != '\n') word[wlen++] = *p++;
             word[wlen] = 0;
@@ -226,7 +233,6 @@ public:
             float wordW = wlen * charW;
 
             if (*p == '\n') {
-                // explicit newline — flush word then break
                 if (wlen > 0) {
                     _drawChars(word, wlen, lineX, curY, size, r, g, b, a);
                     lineX += wordW;
@@ -237,7 +243,6 @@ public:
                 continue;
             }
 
-            // would this word overflow?
             if (lineX + wordW > x + maxW && lineX > x) {
                 curY  += size * lineH;
                 lineX  = x;
@@ -248,7 +253,6 @@ public:
                 lineX += wordW;
             }
 
-            // space
             if (*p == ' ') {
                 lineX += charW;
                 p++;
@@ -259,12 +263,13 @@ public:
 private:
     void _drawChars(const char* str, int len, float x, float y, float size,
                     float r, float g, float b, float a) {
+        // clamp so we never exceed the pre-allocated buffer
+        if (len > TEXT_MAX_CHARS) len = TEXT_MAX_CHARS;
+
         float charW = size / aspect;
         float charH = size;
 
-        float* verts = new float[len * 6 * 4];
         int vi = 0;
-
         for (int i = 0; i < len; i++) {
             unsigned char c = (unsigned char)str[i];
             if (c >= 128) c = '?';
@@ -277,12 +282,12 @@ private:
             float u0 = (c * 8.0f) / 1024.0f;
             float u1 = (c * 8.0f + 8.0f) / 1024.0f;
 
-            verts[vi++]=x0; verts[vi++]=y0; verts[vi++]=u0; verts[vi++]=0.0f;
-            verts[vi++]=x1; verts[vi++]=y0; verts[vi++]=u1; verts[vi++]=0.0f;
-            verts[vi++]=x0; verts[vi++]=y1; verts[vi++]=u0; verts[vi++]=1.0f;
-            verts[vi++]=x1; verts[vi++]=y0; verts[vi++]=u1; verts[vi++]=0.0f;
-            verts[vi++]=x1; verts[vi++]=y1; verts[vi++]=u1; verts[vi++]=1.0f;
-            verts[vi++]=x0; verts[vi++]=y1; verts[vi++]=u0; verts[vi++]=1.0f;
+            _vbuf[vi++]=x0; _vbuf[vi++]=y0; _vbuf[vi++]=u0; _vbuf[vi++]=0.0f;
+            _vbuf[vi++]=x1; _vbuf[vi++]=y0; _vbuf[vi++]=u1; _vbuf[vi++]=0.0f;
+            _vbuf[vi++]=x0; _vbuf[vi++]=y1; _vbuf[vi++]=u0; _vbuf[vi++]=1.0f;
+            _vbuf[vi++]=x1; _vbuf[vi++]=y0; _vbuf[vi++]=u1; _vbuf[vi++]=0.0f;
+            _vbuf[vi++]=x1; _vbuf[vi++]=y1; _vbuf[vi++]=u1; _vbuf[vi++]=1.0f;
+            _vbuf[vi++]=x0; _vbuf[vi++]=y1; _vbuf[vi++]=u0; _vbuf[vi++]=1.0f;
         }
 
         GLint prevProg; glGetIntegerv(GL_CURRENT_PROGRAM, &prevProg);
@@ -291,7 +296,7 @@ private:
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
-        glBufferData(GL_ARRAY_BUFFER, vi * sizeof(float), verts, GL_STREAM_DRAW);
+        glBufferData(GL_ARRAY_BUFFER, vi * sizeof(float), _vbuf, GL_STREAM_DRAW);
 
         glEnableVertexAttribArray(posLoc);
         glEnableVertexAttribArray(uvLoc);
@@ -309,11 +314,9 @@ private:
         glDisableVertexAttribArray(uvLoc);
         glBindBuffer(GL_ARRAY_BUFFER, 0);
         glUseProgram(prevProg);
-        delete[] verts;
     }
 };
 
-// global singleton — call Text::init(aspect) once after s.init()
 namespace Text {
     static TextRenderer _r;
     static bool         _ready = false;
@@ -332,6 +335,5 @@ namespace Text {
         _r.drawWrapped(str, x, y, size, maxW, r, g, b, a);
     }
 
-    // convenience: char width in UV space at given size
     inline float charW(float size, float aspect) { return size / aspect; }
 }

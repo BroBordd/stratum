@@ -57,7 +57,6 @@ static void fill_touch_ranges(InputDev& dev) {
 static std::vector<InputDev> open_input_devices() {
     std::vector<InputDev> devs;
 
-    // touch device
     {
         int fd = open_dev(StratumConfig::TOUCH_DEVICE);
         if (fd >= 0) {
@@ -70,7 +69,6 @@ static std::vector<InputDev> open_input_devices() {
         }
     }
 
-    // key devices
     for (const char* path : {StratumConfig::KEY_DEVICE, StratumConfig::KEY_DEVICE2}) {
         if (!path || path[0] == '\0') continue;
         int fd = open_dev(path);
@@ -86,7 +84,6 @@ static std::vector<InputDev> open_input_devices() {
     return devs;
 }
 
-// protocol A per-device touch state
 struct ProtoAState {
     int  x          = 0;
     int  y          = 0;
@@ -94,7 +91,6 @@ struct ProtoAState {
     bool down       = false;
 };
 
-// protocol B slot state
 struct Slot {
     int  id     = -1;
     int  x      = 0;
@@ -150,7 +146,6 @@ struct Stratum::Impl {
     }
 
     void inputLoop() {
-        // per touch-device state
         std::vector<ProtoAState>        protoA(inputDevs.size());
         std::vector<std::vector<Slot>>  protoB(inputDevs.size(),
                                                std::vector<Slot>(StratumConfig::TOUCH_SLOTS));
@@ -172,7 +167,6 @@ struct Stratum::Impl {
                 while (read(dev.fd, &ev, sizeof(ev)) == sizeof(ev)) {
                     float t = mono_now();
 
-                    // keys
                     if (ev.type == EV_KEY && dev.hasKeys && keyCb) {
                         if (ev.value == 1) {
                             keyCb({ev.code, KeyAction::DOWN, t});
@@ -189,7 +183,6 @@ struct Stratum::Impl {
                     int proto = StratumConfig::TOUCH_PROTOCOL;
 
                     if (proto == 1) {
-                        // protocol A
                         auto& ts = protoA[i];
                         if (ev.type == EV_ABS) {
                             if      (ev.code == ABS_MT_TRACKING_ID) ts.trackingId = ev.value;
@@ -200,7 +193,6 @@ struct Stratum::Impl {
                             dispatchTouch(dev, ts, t);
 
                     } else if (proto == 2) {
-                        // protocol B
                         int s = curSlot[i];
                         if (ev.type == EV_ABS) {
                             if (ev.code == ABS_MT_SLOT) {
@@ -225,14 +217,10 @@ struct Stratum::Impl {
                             dispatchTouchB(dev, protoB[i], t);
 
                     } else {
-                        // auto-detect: if we ever see ABS_MT_SLOT it's B, else A
-                        // default to A, switch on first slot event
                         auto& ts = protoA[i];
                         if (ev.type == EV_ABS && ev.code == ABS_MT_SLOT) {
-                            // upgrade to B mid-stream — just handle it
                             curSlot[i] = ev.value < StratumConfig::TOUCH_SLOTS ? ev.value : 0;
-                            dev.hasTouch = true; // re-use hasTouch as "seen slot"
-                            // fall through handled next iteration
+                            dev.hasTouch = true;
                         } else if (ev.type == EV_ABS) {
                             if      (ev.code == ABS_MT_TRACKING_ID) ts.trackingId = ev.value;
                             else if (ev.code == ABS_MT_POSITION_X)  ts.x = ev.value;
@@ -244,7 +232,6 @@ struct Stratum::Impl {
                 }
             }
 
-            // software key repeat
             if (repeatCode >= 0 && keyCb) {
                 float t = mono_now();
                 if (t >= repeatNext) {
@@ -343,16 +330,25 @@ void Stratum::run() {
     Stratum::log("stratum", "run() started, w=%d h=%d", mImpl->w, mImpl->h);
     mImpl->inputThread = std::thread([this]{ mImpl->inputLoop(); });
 
+    const float TARGET = 1.0f / 60.0f;
+
     struct timespec start, now;
     clock_gettime(CLOCK_MONOTONIC, &start);
 
     while (mImpl->running) {
+        float t0 = mono_now();
+
         clock_gettime(CLOCK_MONOTONIC, &now);
         float t = (now.tv_sec - start.tv_sec) +
                   (now.tv_nsec - start.tv_nsec) / 1e9f;
+
         if (mImpl->frameCb) mImpl->frameCb(t);
         eglSwapBuffers(mImpl->dpy, mImpl->esurf);
-        usleep(16667);
+
+        float elapsed   = mono_now() - t0;
+        float remaining = TARGET - elapsed;
+        if (remaining > 0.0f)
+            usleep((useconds_t)(remaining * 1e6f));
     }
 
     mImpl->inputThread.join();

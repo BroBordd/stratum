@@ -47,12 +47,10 @@ struct Terminal {
     int scroll_off = 0;
     const int MAX_HISTORY = 2000;
 
-    // Alt screen
     bool in_alt = false;
     std::vector<std::string> alt_screen;
     int alt_cx = 0, alt_cy = 0;
 
-    // Esc parser
     int esc_state = 0;
     char esc_buf[64];
     int esc_len = 0;
@@ -116,27 +114,18 @@ struct Terminal {
 
     void put_char(char c) {
         if (wrap_pending) {
-            cx = 0;
-            cy++;
+            cx = 0; cy++;
             if (cy >= rows) { cy = rows - 1; scroll_up(); }
             wrap_pending = false;
         }
         screen[cy][cx] = c;
-        if (cx < cols - 1) {
-            cx++;
-        } else {
-            wrap_pending = true;
-        }
+        if (cx < cols - 1) { cx++; } else { wrap_pending = true; }
     }
 
     void clear_line(int mode) {
-        if (mode == 0) {
-            for (int i = cx; i < cols; i++) screen[cy][i] = ' ';
-        } else if (mode == 1) {
-            for (int i = 0; i <= cx; i++) screen[cy][i] = ' ';
-        } else if (mode == 2) {
-            screen[cy] = std::string(cols, ' ');
-        }
+        if (mode == 0)      { for (int i = cx; i < cols; i++) screen[cy][i] = ' '; }
+        else if (mode == 1) { for (int i = 0; i <= cx; i++) screen[cy][i] = ' '; }
+        else if (mode == 2) { screen[cy] = std::string(cols, ' '); }
     }
 
     void clear_screen(int mode) {
@@ -395,8 +384,21 @@ static const float REPEAT_INTERVAL = 0.06f;
 // ── main ──────────────────────────────────────────────────────────────────────
 
 int main(int,char**) {
+    Stratum s;
+    if (!s.init()) return 1;
+    Text::init(s.aspect());
+
+    float asp = s.aspect();
+    float txtS = fminf(0.020f, 0.85f * asp / 44);
+    float charW = txtS / asp;
+    float lineH = txtS * 1.25f;
+    float termY1 = gKbY0 - 0.003f;
+
     struct winsize ws;
-    ws.ws_col=80; ws.ws_row=24; ws.ws_xpixel=0; ws.ws_ypixel=0;
+    ws.ws_col = (uint16_t)std::max(1, (int)((0.94f - 0.02f) / charW));
+    ws.ws_row = (uint16_t)std::max(1, (int)((termY1 - 0.004f) / lineH));
+    ws.ws_xpixel = 0; ws.ws_ypixel = 0;
+
     int master;
     gShellPid=forkpty(&master,nullptr,nullptr,&ws);
     if (gShellPid<0) return 1;
@@ -410,14 +412,6 @@ int main(int,char**) {
     gMasterFd=master;
     fcntl(master,F_SETFL,O_NONBLOCK);
 
-    // Kick the prompt in case CWD wrap pushed it off-screen
-    usleep(120000);
-    pty_write("\r", 1);
-
-    Stratum s;
-    if (!s.init()) return 1;
-    Text::init(s.aspect());
-
     GLuint vs=compileShader(GL_VERTEX_SHADER,VSH);
     GLuint fs=compileShader(GL_FRAGMENT_SHADER,FSH);
     GLuint prog=glCreateProgram();
@@ -428,74 +422,61 @@ int main(int,char**) {
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
 
-    float asp=s.aspect();
     gKbRowH=(1.0f-gKbY0-0.002f)/KB_ROWS;
 
     s.onTouch([&](const TouchEvent& e) {
-        if (gScreen==ScreenStatus::CONFIRM_EXIT) {
-            if (e.action!=TouchAction::DOWN) return;
-            gTouchWasBtn=true;
-            if (e.y>=0.51f&&e.y<=0.61f) {
-                bool hitYes=e.x>=0.10f&&e.x<=0.44f;
-                bool hitNo =e.x>=0.56f&&e.x<=0.90f;
-                if (hitYes) {
-                    if (gMasterFd>=0) { close(gMasterFd); gMasterFd=-1; }
-                    kill(gShellPid,SIGKILL); s.stop();
-                } else if (hitNo) { gScreen=ScreenStatus::TERM; }
-            }
-            return;
-        }
-
-        if (e.action==TouchAction::DOWN) {
-            gTouchStartY=e.y; gTouchStartX=e.x;
-            gTouchLastY=e.y; gTouchScrolling=false;
-            gTouchWasBtn=false;
-            gHeldKey=nullptr;
-            // dialog covers 0.36–0.66; any tap anywhere dismisses to TERM
-            // unless it lands squarely on YES
-            bool hitYes=e.x>=0.10f&&e.x<=0.44f&&e.y>=0.51f&&e.y<=0.61f;
-            bool hitNo =e.x>=0.56f&&e.x<=0.90f&&e.y>=0.51f&&e.y<=0.61f;
+        // ── confirm-exit overlay intercepts everything ─────────────────────
+        if (gScreen == ScreenStatus::CONFIRM_EXIT) {
+            if (e.action != TouchAction::DOWN) return;
+            bool hitYes = e.x>=0.10f && e.x<=0.44f && e.y>=0.51f && e.y<=0.61f;
+            bool hitNo  = e.x>=0.56f && e.x<=0.90f && e.y>=0.51f && e.y<=0.61f;
             if (hitYes) {
                 if (gMasterFd>=0) { close(gMasterFd); gMasterFd=-1; }
-                kill(gShellPid,SIGKILL); s.stop();
-            } else {
-                // NO button or anywhere outside YES → cancel
-                gScreen=ScreenStatus::TERM;
+                kill(gShellPid, SIGKILL); s.stop();
+            } else if (hitNo) {
+                gScreen = ScreenStatus::TERM;
             }
             return;
         }
 
-        if (e.action==TouchAction::DOWN) {
+        // ── DOWN ──────────────────────────────────────────────────────────
+        if (e.action == TouchAction::DOWN) {
             gTouchStartY=e.y; gTouchStartX=e.x;
             gTouchLastY=e.y; gTouchScrolling=false;
             gTouchWasBtn=false;
             gHeldKey=nullptr;
 
+            // KB toggle button
             float bx0,by0,bx1,by1;
             kbBtnBounds(bx0,by0,bx1,by1);
-            if (e.x>=bx0&&e.x<=bx1&&e.y>=by0&&e.y<=by1) {
+            if (e.x>=bx0 && e.x<=bx1 && e.y>=by0 && e.y<=by1) {
                 gKbVisible=!gKbVisible;
                 gKbRowH=(1.0f-gKbY0-0.002f)/KB_ROWS;
                 gTouchWasBtn=true;
                 return;
             }
+
+            // Scroll up button
             float sbx0,sby0,sbx1,sby1;
             scrollBtnBounds(true,sbx0,sby0,sbx1,sby1);
-            if (e.x>=sbx0&&e.x<=sbx1&&e.y>=sby0&&e.y<=sby1) {
+            if (e.x>=sbx0 && e.x<=sbx1 && e.y>=sby0 && e.y<=sby1) {
                 std::lock_guard<std::mutex> lk(gTerm.mtx);
                 gTerm.scroll_off=std::min(gTerm.scroll_off+4,(int)gTerm.history.size());
                 gTouchWasBtn=true;
                 return;
             }
+
+            // Scroll down button
             scrollBtnBounds(false,sbx0,sby0,sbx1,sby1);
-            if (e.x>=sbx0&&e.x<=sbx1&&e.y>=sby0&&e.y<=sby1) {
+            if (e.x>=sbx0 && e.x<=sbx1 && e.y>=sby0 && e.y<=sby1) {
                 std::lock_guard<std::mutex> lk(gTerm.mtx);
                 gTerm.scroll_off=std::max(gTerm.scroll_off-4,0);
                 gTouchWasBtn=true;
                 return;
             }
 
-            if (gKbVisible&&e.y>=gKbY0) {
+            // Key hold-repeat registration
+            if (gKbVisible && e.y>=gKbY0) {
                 float kx0,ky0,kx1,ky1;
                 const Key* k=hitTest(e.x,e.y,&kx0,&ky0,&kx1,&ky1);
                 if (k) {
@@ -505,7 +486,11 @@ int main(int,char**) {
                     if (rep) { gHeldKey=k; gRepeatNext=mono_now()+REPEAT_DELAY; }
                 }
             }
-        } else if (e.action==TouchAction::MOVE) {
+            return;
+        }
+
+        // ── MOVE ──────────────────────────────────────────────────────────
+        if (e.action == TouchAction::MOVE) {
             float termBottom=gKbVisible?gKbY0:1.0f;
             if (gTouchStartY<termBottom-0.05f) {
                 float dy=e.y-gTouchLastY;
@@ -517,12 +502,16 @@ int main(int,char**) {
                     gTouchLastY=e.y;
                 }
             }
-        } else if (e.action==TouchAction::UP) {
+            return;
+        }
+
+        // ── UP ────────────────────────────────────────────────────────────
+        if (e.action == TouchAction::UP) {
             float dy=e.y-gTouchStartY;
             gHeldKey=nullptr;
 
             float termBottom=gKbVisible?gKbY0:1.0f;
-            if (!gTouchScrolling&&gTouchStartY<termBottom-0.05f&&fabsf(dy)>0.03f) {
+            if (!gTouchScrolling && gTouchStartY<termBottom-0.05f && fabsf(dy)>0.03f) {
                 std::lock_guard<std::mutex> lk(gTerm.mtx);
                 int delta=(int)(dy/0.010f);
                 gTerm.scroll_off=std::max(0,std::min((int)gTerm.history.size(),gTerm.scroll_off+delta));
@@ -531,7 +520,7 @@ int main(int,char**) {
             }
             gTouchScrolling=false;
 
-            if (!gTouchWasBtn&&gKbVisible&&e.y>=gKbY0&&gTouchStartY>=gKbY0&&fabsf(dy)<0.025f) {
+            if (!gTouchWasBtn && gKbVisible && e.y>=gKbY0 && gTouchStartY>=gKbY0 && fabsf(dy)<0.025f) {
                 float kx0,ky0,kx1,ky1;
                 const Key* k=hitTest(gTouchStartX,gTouchStartY,&kx0,&ky0,&kx1,&ky1);
                 if (k) {
@@ -587,7 +576,6 @@ int main(int,char**) {
         {
             std::lock_guard<std::mutex> lk(gTerm.mtx);
 
-            // Draw lines
             int draw_r=0;
             int hist_sz=(int)gTerm.history.size();
             for (int r=0; r<gTerm.rows; r++) {
@@ -604,7 +592,6 @@ int main(int,char**) {
                         if (screen_row<gTerm.rows)
                             line_str=gTerm.screen[screen_row];
                     }
-                    // hist_idx < 0 → above history window, leave blank
                 } else {
                     line_str=gTerm.screen[r];
                 }
@@ -614,7 +601,6 @@ int main(int,char**) {
                 draw_r++;
             }
 
-            // Draw cursor
             if (gTerm.scroll_off==0) {
                 float age=now-gCursorBlinkT;
                 float blink=age<0.5f?1.0f:0.35f+0.65f*sinf((age-0.5f)*3.14f*1.4f+1.57f);
@@ -624,16 +610,28 @@ int main(int,char**) {
                     drawRect(cx,cy,cx+charW,cy+txtS,0.72f,0.92f,0.62f,std::max(0.f,blink)*0.45f);
             }
 
-            // Draw scroll hint
-            if (gTerm.scroll_off>0) {
-                char sbuf[32]; snprintf(sbuf,sizeof(sbuf),"^ +%d",gTerm.scroll_off);
-                Text::draw(sbuf,0.03f,0.004f,fminf(0.015f,0.7f*asp/22),0.80f,0.65f,0.20f);
+            // scrollbar
+            if (!gTerm.history.empty()) {
+                int hist_sz = (int)gTerm.history.size();
+                int total   = hist_sz + gTerm.rows;
+                float track0 = 0.004f;
+                float track1 = termY1 - 0.004f;
+                float trackH = track1 - track0;
+                float thumbH = std::max(0.03f, trackH * gTerm.rows / (float)total);
+                // scroll_off==0 → thumb flush at bottom, scroll_off==hist_sz → flush at top
+                float t      = 1.0f - (float)gTerm.scroll_off / (float)hist_sz;
+                float thumbY = track0 + t * (trackH - thumbH);
+                float sbx0 = 0.975f, sbx1 = 0.995f;
+                drawRect(sbx0, track0, sbx1, track1, 0.10f, 0.12f, 0.18f, 0.60f);
+                drawRect(sbx0, thumbY, sbx1, thumbY + thumbH,
+                         gTerm.scroll_off > 0 ? 0.50f : 0.28f,
+                         gTerm.scroll_off > 0 ? 0.70f : 0.42f,
+                         1.00f, 0.85f);
             }
         }
 
         if (gKbVisible) drawRect(0.f,termY1,1.f,termY1+0.003f,0.15f,0.35f,0.55f);
 
-        // ── keyboard ──────────────────────────────────────────────────────
         if (gKbVisible) {
             const KbRow* rows=gPage==KbPage::LETTERS?ROWS_L:gPage==KbPage::SYM1?ROWS_S:ROWS_T;
             for (int r=0; r<KB_ROWS; r++) {
@@ -678,7 +676,6 @@ int main(int,char**) {
             }
         }
 
-        // ── floating buttons ──────────────────────────────────────────────
         float bx0,by0,bx1,by1;
         float bs=fminf(0.018f,0.6f*asp/3);
 
@@ -697,7 +694,6 @@ int main(int,char**) {
         Text::draw(kblbl,bx0+((bx1-bx0)-4*kbs/asp)*0.5f,by0+((by1-by0)-kbs)*0.5f,kbs,
                    gKbVisible?0.40f:0.25f,gKbVisible?0.90f:0.55f,gKbVisible?0.40f:0.25f);
 
-        // ── confirm exit ──────────────────────────────────────────────────
         if (gScreen==ScreenStatus::CONFIRM_EXIT) {
             drawRect(0.f,0.f,1.f,1.f,0.f,0.f,0.f,0.65f);
             drawRoundRect(0.08f,0.36f,0.92f,0.66f,0.08f,0.09f,0.11f,0.97f,0.016f);
