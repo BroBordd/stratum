@@ -89,16 +89,29 @@ float t = parseTimeout(argc, argv);
 
 ---
 
-## Examples
+## Apps
+
+Bundled via [stratum-apps](https://github.com/BroBordd/stratum-apps) submodule at `apps/`.
+
+### Utils
 
 | File | Description |
 |---|---|
-| `examples/bump.cpp` | Physics bounce demo |
-| `examples/magma.cpp` | Lava lamp shader |
-| `examples/menu.cpp` | Basic selection menu |
-| `examples/paint.cpp` | Touch drawing canvas |
-| `examples/piano.cpp` | Touch piano keys |
-| `examples/signal.cpp` | Signal/waveform visualiser |
+| `apps/utils/terminal.cpp` | PTY-backed terminal emulator with touch keyboard |
+| `apps/utils/calculator.cpp` | Lightweight expression calculator |
+| `apps/utils/brickbreaker.cpp` | Arcade-style brick breaker game |
+| `apps/utils/signal.cpp` | Signal/waveform visualiser |
+| `apps/utils/sysinfo.cpp` | System information viewer |
+
+### Demos
+
+| File | Description |
+|---|---|
+| `apps/demos/bump.cpp` | Physics bounce demo |
+| `apps/demos/magma.cpp` | Lava lamp shader |
+| `apps/demos/menu.cpp` | Basic selection menu |
+| `apps/demos/paint.cpp` | Touch drawing canvas |
+| `apps/demos/piano.cpp` | Touch piano keys |
 
 Run with:
 

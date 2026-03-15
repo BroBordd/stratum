@@ -80,6 +80,10 @@ STUB
 
     echo "[*] Building libstratum.so..."
     clang++ $FLAGS $INCLUDES -shared -fPIC $ROOT/src/main.cpp $LIBS -o $OUT/libstratum.so
+
+    echo "[*] Building default binary..."
+    clang++ $FLAGS $INCLUDES $ROOT/src/default.cpp $LIBS -lstratum -o $ROOT/stratum-boot/system/bin/stratum_binary
+    chmod +x $ROOT/stratum-boot/system/bin/stratum_binary
 fi
 
 if [[ $BUILD_EXAMPLES -eq 1 ]]; then
