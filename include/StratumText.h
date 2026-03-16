@@ -153,7 +153,6 @@ void main() {
 }
 )";
 
-// max chars per single draw call — increase if you ever draw longer strings
 static const int TEXT_MAX_CHARS = 256;
 
 class TextRenderer {
@@ -161,9 +160,8 @@ public:
     GLuint prog = 0, tex = 0, vbo = 0;
     GLint  posLoc, uvLoc, texLoc, colorLoc;
     float  aspect = 1.0f;
-
-    // pre-allocated scratch buffer — no heap alloc per frame
-    float _vbuf[TEXT_MAX_CHARS * 6 * 4];
+    GLuint callerProg = 0;
+    float  _vbuf[TEXT_MAX_CHARS * 6 * 4];
 
     void init(float asp) {
         aspect = asp;
@@ -196,7 +194,6 @@ public:
         prog = glCreateProgram();
         glAttachShader(prog, vs); glAttachShader(prog, fs);
         glLinkProgram(prog);
-        // shaders are linked — release them
         glDetachShader(prog, vs); glDeleteShader(vs);
         glDetachShader(prog, fs); glDeleteShader(fs);
 
@@ -220,68 +217,40 @@ public:
         if (!prog || !str) return;
         float charW = size / aspect;
         float curY  = y;
-
         char  word[256];
         float lineX = x;
-
         const char* p = str;
         while (*p) {
             int wlen = 0;
             while (*p && *p != ' ' && *p != '\n') word[wlen++] = *p++;
             word[wlen] = 0;
-
             float wordW = wlen * charW;
-
             if (*p == '\n') {
-                if (wlen > 0) {
-                    _drawChars(word, wlen, lineX, curY, size, r, g, b, a);
-                    lineX += wordW;
-                }
-                curY  += size * lineH;
-                lineX  = x;
-                p++;
-                continue;
+                if (wlen > 0) { _drawChars(word, wlen, lineX, curY, size, r, g, b, a); lineX += wordW; }
+                curY += size * lineH; lineX = x; p++; continue;
             }
-
-            if (lineX + wordW > x + maxW && lineX > x) {
-                curY  += size * lineH;
-                lineX  = x;
-            }
-
-            if (wlen > 0) {
-                _drawChars(word, wlen, lineX, curY, size, r, g, b, a);
-                lineX += wordW;
-            }
-
-            if (*p == ' ') {
-                lineX += charW;
-                p++;
-            }
+            if (lineX + wordW > x + maxW && lineX > x) { curY += size * lineH; lineX = x; }
+            if (wlen > 0) { _drawChars(word, wlen, lineX, curY, size, r, g, b, a); lineX += wordW; }
+            if (*p == ' ') { lineX += charW; p++; }
         }
     }
 
 private:
     void _drawChars(const char* str, int len, float x, float y, float size,
                     float r, float g, float b, float a) {
-        // clamp so we never exceed the pre-allocated buffer
         if (len > TEXT_MAX_CHARS) len = TEXT_MAX_CHARS;
-
         float charW = size / aspect;
         float charH = size;
-
         int vi = 0;
         for (int i = 0; i < len; i++) {
             unsigned char c = (unsigned char)str[i];
             if (c >= 128) c = '?';
-
             float x0 = (x + i * charW) * 2.0f - 1.0f;
             float x1 = (x + i * charW + charW) * 2.0f - 1.0f;
             float y0 = 1.0f - y * 2.0f;
             float y1 = 1.0f - (y + charH) * 2.0f;
-
             float u0 = (c * 8.0f) / 1024.0f;
             float u1 = (c * 8.0f + 8.0f) / 1024.0f;
-
             _vbuf[vi++]=x0; _vbuf[vi++]=y0; _vbuf[vi++]=u0; _vbuf[vi++]=0.0f;
             _vbuf[vi++]=x1; _vbuf[vi++]=y0; _vbuf[vi++]=u1; _vbuf[vi++]=0.0f;
             _vbuf[vi++]=x0; _vbuf[vi++]=y1; _vbuf[vi++]=u0; _vbuf[vi++]=1.0f;
@@ -290,7 +259,6 @@ private:
             _vbuf[vi++]=x0; _vbuf[vi++]=y1; _vbuf[vi++]=u0; _vbuf[vi++]=1.0f;
         }
 
-        GLint prevProg; glGetIntegerv(GL_CURRENT_PROGRAM, &prevProg);
         glUseProgram(prog);
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -313,7 +281,7 @@ private:
         glDisableVertexAttribArray(posLoc);
         glDisableVertexAttribArray(uvLoc);
         glBindBuffer(GL_ARRAY_BUFFER, 0);
-        glUseProgram(prevProg);
+        glUseProgram(callerProg);
     }
 };
 
@@ -321,9 +289,14 @@ namespace Text {
     static TextRenderer _r;
     static bool         _ready = false;
 
-    inline void init(float aspect) {
+    // call once after s.init(), pass your GL program so Text can restore it
+    inline void init(float aspect, GLuint callerProg = 0) {
         if (!_ready) { _r.init(aspect); _ready = true; }
+        _r.callerProg = callerProg;
     }
+
+    // update if your program ever changes
+    inline void setCallerProg(GLuint p) { _r.callerProg = p; }
 
     inline void draw(const char* str, float x, float y, float size,
                      float r, float g, float b, float a = 1.0f) {
@@ -332,7 +305,7 @@ namespace Text {
 
     inline void drawWrapped(const char* str, float x, float y, float size, float maxW,
                             float r, float g, float b, float a = 1.0f, float lineH = 1.5f) {
-        _r.drawWrapped(str, x, y, size, maxW, r, g, b, a);
+        _r.drawWrapped(str, x, y, size, maxW, r, g, b, a, lineH);
     }
 
     inline float charW(float size, float aspect) { return size / aspect; }

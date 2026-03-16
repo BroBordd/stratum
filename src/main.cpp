@@ -1,25 +1,42 @@
 #include "Stratum.h"
 #include "StratumConfig.h"
-#include <gui/SurfaceComposerClient.h>
-#include <gui/Surface.h>
-#include <ui/DisplayMode.h>
 #include <EGL/egl.h>
 #include <GLES2/gl2.h>
-#include <linux/input.h>
+#include <atomic>
+#include <climits>
 #include <fcntl.h>
-#include <poll.h>
-#include <unistd.h>
-#include <time.h>
-#include <stdarg.h>
-#include <android/log.h>
-#include <thread>
-#include <vector>
 #include <functional>
-#include <string.h>
+#include <linux/input.h>
+#include <poll.h>
+#include <stdarg.h>
 #include <stdio.h>
+#include <string.h>
+#include <thread>
+#include <time.h>
+#include <unistd.h>
+#include <vector>
+#include <android/log.h>
+#include <gui/Surface.h>
+#include <gui/SurfaceComposerClient.h>
+#include <ui/DisplayMode.h>
 
 using namespace android;
 using namespace android::ui;
+
+struct ScopedFd {
+    int fd = -1;
+    ScopedFd() = default;
+    explicit ScopedFd(int f) : fd(f) {}
+    ~ScopedFd() { if (fd >= 0) close(fd); }
+    ScopedFd(const ScopedFd&) = delete;
+    ScopedFd& operator=(const ScopedFd&) = delete;
+    ScopedFd(ScopedFd&& o) noexcept : fd(o.fd) { o.fd = -1; }
+    ScopedFd& operator=(ScopedFd&& o) noexcept {
+        if (this != &o) { if (fd >= 0) close(fd); fd = o.fd; o.fd = -1; }
+        return *this;
+    }
+    int get() const { return fd; }
+};
 
 static float mono_now() {
     struct timespec ts;
@@ -28,11 +45,11 @@ static float mono_now() {
 }
 
 struct InputDev {
-    int  fd;
-    bool hasKeys;
-    bool hasTouch;
-    int  absXmin, absXmax;
-    int  absYmin, absYmax;
+    ScopedFd fd;
+    bool hasKeys  = false;
+    bool hasTouch = false;
+    int absXmin = 0, absXmax = 0;
+    int absYmin = 0, absYmax = 0;
 };
 
 static int open_dev(const char* path) {
@@ -47,54 +64,45 @@ static void fill_touch_ranges(InputDev& dev) {
         dev.absYmax = StratumConfig::TOUCH_Y_MAX;
     } else {
         struct input_absinfo ai;
-        ioctl(dev.fd, EVIOCGABS(ABS_MT_POSITION_X), &ai);
+        ioctl(dev.fd.get(), EVIOCGABS(ABS_MT_POSITION_X), &ai);
         dev.absXmin = ai.minimum; dev.absXmax = ai.maximum;
-        ioctl(dev.fd, EVIOCGABS(ABS_MT_POSITION_Y), &ai);
+        ioctl(dev.fd.get(), EVIOCGABS(ABS_MT_POSITION_Y), &ai);
         dev.absYmin = ai.minimum; dev.absYmax = ai.maximum;
     }
 }
 
 static std::vector<InputDev> open_input_devices() {
     std::vector<InputDev> devs;
-
     {
         int fd = open_dev(StratumConfig::TOUCH_DEVICE);
         if (fd >= 0) {
-            InputDev dev{};
-            dev.fd       = fd;
-            dev.hasKeys  = false;
+            InputDev dev;
+            dev.fd       = ScopedFd(fd);
             dev.hasTouch = true;
             fill_touch_ranges(dev);
-            devs.push_back(dev);
+            devs.emplace_back(std::move(dev));
         }
     }
-
     for (const char* path : {StratumConfig::KEY_DEVICE, StratumConfig::KEY_DEVICE2}) {
         if (!path || path[0] == '\0') continue;
         int fd = open_dev(path);
         if (fd >= 0) {
-            InputDev dev{};
-            dev.fd       = fd;
-            dev.hasKeys  = true;
-            dev.hasTouch = false;
-            devs.push_back(dev);
+            InputDev dev;
+            dev.fd      = ScopedFd(fd);
+            dev.hasKeys = true;
+            devs.emplace_back(std::move(dev));
         }
     }
-
     return devs;
 }
 
 struct ProtoAState {
-    int  x          = 0;
-    int  y          = 0;
-    int  trackingId = -1;
-    bool down       = false;
+    int  x = 0, y = 0, trackingId = -1;
+    bool down = false;
 };
 
 struct Slot {
-    int  id     = -1;
-    int  x      = 0;
-    int  y      = 0;
+    int  id = -1, x = 0, y = 0;
     bool active = false;
 };
 
@@ -102,12 +110,12 @@ struct Stratum::Impl {
     sp<SurfaceComposerClient> session;
     sp<SurfaceControl>        ctrl;
     sp<Surface>               surf;
-    EGLDisplay dpy;
-    EGLSurface esurf;
-    EGLContext ctx;
+    EGLDisplay dpy   = EGL_NO_DISPLAY;
+    EGLSurface esurf = EGL_NO_SURFACE;
+    EGLContext ctx   = EGL_NO_CONTEXT;
     int w = 0, h = 0;
 
-    bool running = true;
+    std::atomic_bool running{true};
 
     std::function<void(float)>             frameCb;
     std::function<void(const KeyEvent&)>   keyCb;
@@ -146,16 +154,17 @@ struct Stratum::Impl {
     }
 
     void inputLoop() {
-        std::vector<ProtoAState>        protoA(inputDevs.size());
-        std::vector<std::vector<Slot>>  protoB(inputDevs.size(),
-                                               std::vector<Slot>(StratumConfig::TOUCH_SLOTS));
-        std::vector<int>                curSlot(inputDevs.size(), 0);
+        std::vector<ProtoAState>       protoA(inputDevs.size());
+        std::vector<std::vector<Slot>> protoB(inputDevs.size(),
+                                              std::vector<Slot>(StratumConfig::TOUCH_SLOTS));
+        std::vector<int>               curSlot(inputDevs.size(), 0);
+        std::vector<pollfd>            pfds;
+        pfds.reserve(inputDevs.size());
 
         while (running) {
-            std::vector<pollfd> pfds;
-            pfds.reserve(inputDevs.size());
+            pfds.clear();
             for (auto& dev : inputDevs)
-                pfds.push_back({dev.fd, POLLIN, 0});
+                pfds.push_back({dev.fd.get(), POLLIN, 0});
 
             poll(pfds.data(), pfds.size(), 16);
 
@@ -164,7 +173,7 @@ struct Stratum::Impl {
                 auto& dev = inputDevs[i];
                 struct input_event ev;
 
-                while (read(dev.fd, &ev, sizeof(ev)) == sizeof(ev)) {
+                while (read(dev.fd.get(), &ev, sizeof(ev)) == sizeof(ev)) {
                     float t = mono_now();
 
                     if (ev.type == EV_KEY && dev.hasKeys && keyCb) {
@@ -179,7 +188,6 @@ struct Stratum::Impl {
                     }
 
                     if (!dev.hasTouch) continue;
-
                     int proto = StratumConfig::TOUCH_PROTOCOL;
 
                     if (proto == 1) {
@@ -199,19 +207,17 @@ struct Stratum::Impl {
                                 curSlot[i] = ev.value < StratumConfig::TOUCH_SLOTS ? ev.value : 0;
                             } else if (ev.code == ABS_MT_TRACKING_ID) {
                                 auto& sl = protoB[i][s];
+                                float nx = (float)(sl.x - dev.absXmin) / (dev.absXmax - dev.absXmin);
+                                float ny = (float)(sl.y - dev.absYmin) / (dev.absYmax - dev.absYmin);
                                 if (ev.value >= 0) {
                                     sl.id = ev.value; sl.active = true;
-                                    float nx = (float)(sl.x - dev.absXmin) / (dev.absXmax - dev.absXmin);
-                                    float ny = (float)(sl.y - dev.absYmin) / (dev.absYmax - dev.absYmin);
                                     if (touchCb) touchCb({s, sl.id, TouchAction::DOWN, nx, ny, t});
                                 } else {
-                                    float nx = (float)(sl.x - dev.absXmin) / (dev.absXmax - dev.absXmin);
-                                    float ny = (float)(sl.y - dev.absYmin) / (dev.absYmax - dev.absYmin);
                                     if (touchCb) touchCb({s, sl.id, TouchAction::UP, nx, ny, t});
                                     sl.active = false; sl.id = -1;
                                 }
                             } else if (ev.code == ABS_MT_POSITION_X) protoB[i][curSlot[i]].x = ev.value;
-                            else if (ev.code == ABS_MT_POSITION_Y)   protoB[i][curSlot[i]].y = ev.value;
+                            else if   (ev.code == ABS_MT_POSITION_Y) protoB[i][curSlot[i]].y = ev.value;
                         }
                         if (ev.type == EV_SYN && ev.code == SYN_REPORT)
                             dispatchTouchB(dev, protoB[i], t);
@@ -243,8 +249,22 @@ struct Stratum::Impl {
     }
 };
 
-Stratum::Stratum() : mImpl(new Impl()) {}
-Stratum::~Stratum() { delete mImpl; }
+Stratum::Stratum() : mImpl(std::make_unique<Impl>()) {}
+
+Stratum::~Stratum() {
+    mImpl->running = false;
+    if (mImpl->inputThread.joinable())
+        mImpl->inputThread.join();
+    if (mImpl->dpy != EGL_NO_DISPLAY) {
+        eglMakeCurrent(mImpl->dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        if (mImpl->ctx   != EGL_NO_CONTEXT) eglDestroyContext(mImpl->dpy, mImpl->ctx);
+        if (mImpl->esurf != EGL_NO_SURFACE) eglDestroySurface(mImpl->dpy, mImpl->esurf);
+        eglTerminate(mImpl->dpy);
+    }
+    mImpl->surf.clear();
+    mImpl->ctrl.clear();
+    mImpl->session.clear();
+}
 
 bool Stratum::init() {
     mImpl->session = new SurfaceComposerClient();
@@ -282,6 +302,7 @@ bool Stratum::init() {
         EGL_RED_SIZE,   8,
         EGL_GREEN_SIZE, 8,
         EGL_BLUE_SIZE,  8,
+        EGL_ALPHA_SIZE, 8,
         EGL_DEPTH_SIZE, 0,
         EGL_NONE
     };
@@ -290,9 +311,10 @@ bool Stratum::init() {
     if (n == 0) return false;
 
     mImpl->esurf = eglCreateWindowSurface(mImpl->dpy, cfg, mImpl->surf.get(), nullptr);
-    EGLint ctxAttribs[] = { EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE };
+    EGLint ctxAttribs[] = {EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE};
     mImpl->ctx = eglCreateContext(mImpl->dpy, cfg, nullptr, ctxAttribs);
     eglMakeCurrent(mImpl->dpy, mImpl->esurf, mImpl->esurf, mImpl->ctx);
+    eglSwapInterval(mImpl->dpy, 1);
 
     mImpl->inputDevs = open_input_devices();
     Stratum::log("stratum", "init() done, %zu input devices", mImpl->inputDevs.size());
@@ -328,27 +350,17 @@ void Stratum::log(const char* tag, const char* fmt, ...) {
 
 void Stratum::run() {
     Stratum::log("stratum", "run() started, w=%d h=%d", mImpl->w, mImpl->h);
-    mImpl->inputThread = std::thread([this]{ mImpl->inputLoop(); });
-
-    const float TARGET = 1.0f / 60.0f;
+    mImpl->inputThread = std::thread([this] { mImpl->inputLoop(); });
 
     struct timespec start, now;
     clock_gettime(CLOCK_MONOTONIC, &start);
 
     while (mImpl->running) {
-        float t0 = mono_now();
-
         clock_gettime(CLOCK_MONOTONIC, &now);
-        float t = (now.tv_sec - start.tv_sec) +
+        float t = (now.tv_sec  - start.tv_sec) +
                   (now.tv_nsec - start.tv_nsec) / 1e9f;
-
         if (mImpl->frameCb) mImpl->frameCb(t);
         eglSwapBuffers(mImpl->dpy, mImpl->esurf);
-
-        float elapsed   = mono_now() - t0;
-        float remaining = TARGET - elapsed;
-        if (remaining > 0.0f)
-            usleep((useconds_t)(remaining * 1e6f));
     }
 
     mImpl->inputThread.join();

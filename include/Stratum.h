@@ -1,5 +1,6 @@
 #pragma once
 #include <functional>
+#include <memory>
 
 enum class KeyAction { DOWN, UP, REPEAT };
 
@@ -41,5 +42,5 @@ public:
 
 private:
     struct Impl;
-    Impl* mImpl;
+    std::unique_ptr<Impl> mImpl;
 };

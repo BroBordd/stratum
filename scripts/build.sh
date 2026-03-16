@@ -62,7 +62,7 @@ INCLUDES="\
   -I$ROOT/include/v34/arm64/include/system/libhwbinder/include \
   -I$ROOT/include/logging/liblog/include"
 
-FLAGS="-std=c++17 -target aarch64-linux-android34 -D__BIONIC__ -w -include $ROOT/include/compat.h"
+FLAGS="-std=c++17 -O2 -march=armv8-a -target aarch64-linux-android34 -D__BIONIC__ -w -include $ROOT/include/compat.h"
 LIBS="-L/system/lib64 -lgui -lui -lEGL -lGLESv2 -lbinder -lutils -llog -Wl,--allow-shlib-undefined -Wl,--unresolved-symbols=ignore-all"
 
 if [[ $BUILD_LIB -eq 1 ]]; then
@@ -90,14 +90,23 @@ if [[ $BUILD_EXAMPLES -eq 1 ]]; then
     if [[ ${#ONLY[@]} -gt 0 ]]; then
         targets=()
         for name in "${ONLY[@]}"; do
-            f=""
-            [[ -f $ROOT/apps/utils/$name.cpp ]] && f=$ROOT/apps/utils/$name.cpp
-            [[ -f $ROOT/apps/demos/$name.cpp ]] && f=$ROOT/apps/demos/$name.cpp
-            if [[ -z $f ]]; then
-                echo "[!] App not found: $name"
-                exit 1
+            # allow direct path to .cpp file
+            if [[ $name == *.cpp ]]; then
+                if [[ ! -f $name ]]; then
+                    echo "[!] File not found: $name"
+                    exit 1
+                fi
+                targets+=("$name")
+            else
+                f=""
+                [[ -f $ROOT/apps/utils/$name.cpp ]] && f=$ROOT/apps/utils/$name.cpp
+                [[ -f $ROOT/apps/demos/$name.cpp ]] && f=$ROOT/apps/demos/$name.cpp
+                if [[ -z $f ]]; then
+                    echo "[!] App not found: $name"
+                    exit 1
+                fi
+                targets+=("$f")
             fi
-            targets+=("$f")
         done
     else
         targets=($ROOT/apps/utils/*.cpp $ROOT/apps/demos/*.cpp)
