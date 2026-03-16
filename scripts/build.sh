@@ -68,12 +68,10 @@ LIBS="-L/system/lib64 -lgui -lui -lEGL -lGLESv2 -lbinder -lutils -llog -Wl,--all
 if [[ $BUILD_LIB -eq 1 ]]; then
     echo "[*] Building stub..."
     cat > $ROOT/include/stub.cpp << 'STUB'
-#include <typeinfo>
 namespace android {
     class VectorImpl { public: virtual ~VectorImpl() {} };
     class SortedVectorImpl : public VectorImpl { public: virtual ~SortedVectorImpl() {} };
 }
-const std::type_info& sortedvector_typeinfo = typeid(android::SortedVectorImpl);
 STUB
     clang++ -shared -fPIC -frtti -target aarch64-linux-android34 -o $OUT/stub.so $ROOT/include/stub.cpp
     rm $ROOT/include/stub.cpp
