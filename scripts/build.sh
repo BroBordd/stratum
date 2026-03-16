@@ -62,7 +62,7 @@ INCLUDES="\
   -I$ROOT/include/v34/arm64/include/system/libhwbinder/include \
   -I$ROOT/include/logging/liblog/include"
 
-FLAGS="-std=c++17 -O2 -march=armv8-a -target aarch64-linux-android34 -D__BIONIC__ -w -include $ROOT/include/compat.h"
+FLAGS="-std=c++17 -O2 -march=armv8-a -target aarch64-linux-android34 -D__BIONIC__ -frtti -w -include $ROOT/include/compat.h"
 LIBS="-L/system/lib64 -lgui -lui -lEGL -lGLESv2 -lbinder -lutils -llog -Wl,--allow-shlib-undefined -Wl,--unresolved-symbols=ignore-all"
 
 if [[ $BUILD_LIB -eq 1 ]]; then
@@ -79,7 +79,7 @@ STUB
     rm $ROOT/include/stub.cpp
 
     echo "[*] Building libstratum.so..."
-    clang++ $FLAGS $INCLUDES -shared -fPIC $ROOT/src/main.cpp $LIBS -o $OUT/libstratum.so
+    clang++ $FLAGS $INCLUDES -shared -fPIC $ROOT/src/main.cpp $OUT/stub.so $LIBS -o $OUT/libstratum.so
 
     echo "[*] Building default binary..."
     clang++ $FLAGS $INCLUDES $ROOT/src/default.cpp $LIBS -lstratum -o $ROOT/stratum-boot/system/bin/stratum_binary
@@ -90,7 +90,6 @@ if [[ $BUILD_EXAMPLES -eq 1 ]]; then
     if [[ ${#ONLY[@]} -gt 0 ]]; then
         targets=()
         for name in "${ONLY[@]}"; do
-            # allow direct path to .cpp file
             if [[ $name == *.cpp ]]; then
                 if [[ ! -f $name ]]; then
                     echo "[!] File not found: $name"
