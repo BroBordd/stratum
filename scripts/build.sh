@@ -166,8 +166,11 @@ if [[ $BUILD_EXAMPLES -eq 1 ]]; then
         targets=($ROOT/apps/utils/*.cpp $ROOT/apps/demos/*.cpp)
     fi
 
+    mkdir -p "$DEVICE_DIR/out/extras"
     for f in "${targets[@]}"; do
+        name=$(basename "$f" .cpp)
         bash "$ROOT/scripts/build_app.sh" "$DEVICE" "$f"
+        mv "$OUT_BINS/$name" "$DEVICE_DIR/out/extras/$name" 2>/dev/null || true
     done
 fi
 
