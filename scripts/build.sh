@@ -61,7 +61,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# ── compiler flags (shared with build_app.sh) ─────────────────────────────────
+# ── compiler flags ────────────────────────────────────────────────────────────
 INCLUDES="\
   -I$DEVICE_DIR \
   -I$ROOT/include \
@@ -177,16 +177,19 @@ fi
 # ── package module zip ────────────────────────────────────────────────────────
 echo "[*] Packaging module zip..."
 
-STAGING=$(mktemp -d)
+STAGING="$DEVICE_DIR/out/.staging"
+rm -rf "$STAGING"
+mkdir -p "$STAGING"
 cp -r "$DEVICE_DIR/stratum-boot/." "$STAGING/"
+mkdir -p "$STAGING/system/lib64" "$STAGING/system/bin"
+
 cp "$OUT_LIBS/libstratum.so"  "$STAGING/system/lib64/libstratum.so"
 cp "$OUT_LIBS/stub.so"        "$STAGING/system/lib64/stub.so"
 cp "$OUT_BINS/stratum_binary" "$STAGING/system/bin/stratum_binary"
 
 MODULE_ZIP="$DEVICE_DIR/out/${DEVICE}-stratum-boot.zip"
-cd "$STAGING"
-zip -r9 "$OLDPWD/$MODULE_ZIP" . > /dev/null
-cd "$OLDPWD"
+cd "$STAGING" && zip -r9 "$MODULE_ZIP" . > /dev/null
+cd "$ROOT"
 rm -rf "$STAGING"
 
 echo ""
