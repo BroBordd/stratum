@@ -1,5 +1,6 @@
 #include "Stratum.h"
 #include "StratumText.h"
+#include "StratumArgs.h"
 #include <GLES2/gl2.h>
 #include <unistd.h>
 #include <linux/input-event-codes.h>
@@ -15,10 +16,11 @@ uniform vec4 color;
 void main() { gl_FragColor = color; }
 )";
 
-int main() {
+int main(int argc, char** argv) {
+    float timeout = parseTimeout(argc, argv);
+
     Stratum s;
     if (!s.init()) return 1;
-    Text::init(s.aspect());
 
     GLuint vs = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(vs, 1, &VSH, nullptr); glCompileShader(vs);
@@ -33,8 +35,11 @@ int main() {
 
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    Text::init(s.aspect(), prog);
 
     s.onFrame([&](float t) {
+        if (timeout > 0 && t > timeout) { s.stop(); return; }
+
         float asp = s.aspect();
         glClearColor(0.04f, 0.04f, 0.06f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
