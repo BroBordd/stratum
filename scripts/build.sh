@@ -1,21 +1,52 @@
 #!/bin/bash
 set -e
 
-OUT=bin
 ROOT=$(dirname $0)/..
-mkdir -p $OUT
 
 usage() {
-    echo "Usage: $0 [options] [example...]"
-    echo "  -l, --lib-only       build libstratum.so only, skip apps"
+    echo "Usage: $0 <device> [options] [app...]"
+    echo "  -l, --lib-only       build libstratum.so + stub only, skip apps"
     echo "  -e, --examples-only  skip rebuilding lib (apps only)"
     echo "  -h, --help           show this help"
     echo ""
-    echo "  example args: specific app name(s) to build (default: all)"
-    echo "  e.g: $0 terminal brickbreaker"
+    echo "  app args: specific app name(s) to build (default: all)"
+    echo "  e.g: $0 a14 terminal brickbreaker"
     exit 0
 }
 
+# ── device guard ─────────────────────────────────────────────────────────────
+if [ -z "$1" ] || [[ "$1" == -* ]]; then
+    echo "error: device not specified"
+    echo "usage: $0 <device> [options]"
+    exit 1
+fi
+
+DEVICE=$1
+shift
+
+DEVICE_DIR="$ROOT/devices/$DEVICE"
+
+if [ ! -d "$DEVICE_DIR" ]; then
+    echo "error: '$DEVICE_DIR' not found — fork and add your device folder"
+    exit 1
+fi
+
+if [ ! -f "$DEVICE_DIR/StratumConfig.h" ]; then
+    echo "error: missing $DEVICE_DIR/StratumConfig.h"
+    exit 1
+fi
+
+if [ ! -d "$DEVICE_DIR/stratum-boot" ]; then
+    echo "error: missing $DEVICE_DIR/stratum-boot/"
+    exit 1
+fi
+
+# ── output dirs ───────────────────────────────────────────────────────────────
+OUT_BINS="$DEVICE_DIR/out/bins"
+OUT_LIBS="$DEVICE_DIR/out/libs"
+mkdir -p "$OUT_BINS" "$OUT_LIBS"
+
+# ── args ──────────────────────────────────────────────────────────────────────
 BUILD_LIB=1
 BUILD_EXAMPLES=1
 ONLY=()
@@ -25,12 +56,14 @@ while [[ $# -gt 0 ]]; do
         -l|--lib-only)       BUILD_EXAMPLES=0; shift ;;
         -e|--examples-only)  BUILD_LIB=0;      shift ;;
         -h|--help)           usage ;;
-        -*) echo "Unknown option: $1"; usage ;;
+        -*) echo "unknown option: $1"; usage ;;
         *)  ONLY+=("$1");    shift ;;
     esac
 done
 
+# ── compiler flags ────────────────────────────────────────────────────────────
 INCLUDES="\
+  -I$DEVICE_DIR \
   -I$ROOT/include \
   -I$ROOT/include/v34/arm64/include/frameworks/native/libs/gui/include \
   -I$ROOT/include/v34/arm64/include/frameworks/native/libs/binder/include \
@@ -65,43 +98,73 @@ INCLUDES="\
 FLAGS="-std=c++17 -O2 -march=armv8-a -target aarch64-linux-android34 -D__BIONIC__ -frtti -w -include $ROOT/include/compat.h"
 LIBS="-L/system/lib64 -lgui -lui -lEGL -lGLESv2 -lbinder -lutils -llog -Wl,--allow-shlib-undefined -Wl,--unresolved-symbols=ignore-all"
 
+# ── lib ───────────────────────────────────────────────────────────────────────
 if [[ $BUILD_LIB -eq 1 ]]; then
-    echo "[*] Building stub..."
-    cat > $ROOT/include/stub.cpp << 'STUB'
+    echo "[*] Building stub.so..."
+    STUB_SRC="$OUT_LIBS/stub.cpp"
+    cat > "$STUB_SRC" << 'STUB'
+#include <stddef.h>
 namespace android {
-    class VectorImpl { public: virtual ~VectorImpl() {} };
-    class SortedVectorImpl : public VectorImpl { public: virtual ~SortedVectorImpl() {} };
+    class VectorImpl {
+    public:
+        virtual ~VectorImpl() {}
+        virtual void do_construct(void*, size_t) const {}
+        virtual void do_destroy(void*, size_t) const {}
+        virtual void do_copy(void*, const void*, size_t) const {}
+        virtual void do_splat(void*, const void*, size_t) const {}
+        virtual void do_move_forward(void*, const void*, size_t) const {}
+        virtual void do_move_backward(void*, const void*, size_t) const {}
+    };
+    class SortedVectorImpl : public VectorImpl {
+    public:
+        virtual ~SortedVectorImpl() {}
+        virtual int do_compare(const void*, const void*) const { return 0; }
+    };
+}
+// force vtable/typeinfo emission
+void* __stub_force() {
+    return new android::SortedVectorImpl();
 }
 STUB
-    clang++ -shared -fPIC -frtti -target aarch64-linux-android34 -o $OUT/stub.so $ROOT/include/stub.cpp
-    rm $ROOT/include/stub.cpp
+    clang++ -shared -fPIC -frtti -target aarch64-linux-android34 \
+        -o "$OUT_LIBS/stub.so" "$STUB_SRC"
+
+    # compile stub to object so symbols get baked into libstratum.so
+    STUB_OBJ="$OUT_LIBS/stub.o"
+    clang++ -fPIC -frtti -target aarch64-linux-android34 \
+        -c "$STUB_SRC" -o "$STUB_OBJ"
 
     echo "[*] Building libstratum.so..."
-    clang++ $FLAGS $INCLUDES -shared -fPIC $ROOT/src/main.cpp $OUT/stub.so $LIBS -o $OUT/libstratum.so
+    clang++ $FLAGS $INCLUDES -shared -fPIC \
+        $ROOT/src/main.cpp "$STUB_OBJ" \
+        $LIBS \
+        -o "$OUT_LIBS/libstratum.so"
+    rm "$STUB_SRC" "$STUB_OBJ"
 
-    echo "[*] Building default binary..."
-    clang++ $FLAGS $INCLUDES $ROOT/src/default.cpp $LIBS -lstratum -o $ROOT/stratum-boot/system/bin/stratum_binary
-    chmod +x $ROOT/stratum-boot/system/bin/stratum_binary
+    if [ ! -f "$DEVICE_DIR/app.cpp" ]; then
+        echo "error: missing $DEVICE_DIR/app.cpp — copy src/default.cpp to get started"
+        exit 1
+    fi
+    echo "[*] Building app..."
+    clang++ $FLAGS $INCLUDES \
+        "$DEVICE_DIR/app.cpp" $LIBS -lstratum \
+        -o "$OUT_BINS/stratum_binary"
+    chmod +x "$OUT_BINS/stratum_binary"
 fi
 
+# ── apps ──────────────────────────────────────────────────────────────────────
 if [[ $BUILD_EXAMPLES -eq 1 ]]; then
     if [[ ${#ONLY[@]} -gt 0 ]]; then
         targets=()
         for name in "${ONLY[@]}"; do
             if [[ $name == *.cpp ]]; then
-                if [[ ! -f $name ]]; then
-                    echo "[!] File not found: $name"
-                    exit 1
-                fi
+                [[ ! -f $name ]] && echo "[!] File not found: $name" && exit 1
                 targets+=("$name")
             else
                 f=""
                 [[ -f $ROOT/apps/utils/$name.cpp ]] && f=$ROOT/apps/utils/$name.cpp
                 [[ -f $ROOT/apps/demos/$name.cpp ]] && f=$ROOT/apps/demos/$name.cpp
-                if [[ -z $f ]]; then
-                    echo "[!] App not found: $name"
-                    exit 1
-                fi
+                [[ -z $f ]] && echo "[!] App not found: $name" && exit 1
                 targets+=("$f")
             fi
         done
@@ -112,8 +175,29 @@ if [[ $BUILD_EXAMPLES -eq 1 ]]; then
     for f in "${targets[@]}"; do
         name=$(basename $f .cpp)
         echo "[*] Building: $name..."
-        clang++ $FLAGS $INCLUDES -L$OUT $f $LIBS -lstratum -o $OUT/$name
+        clang++ $FLAGS $INCLUDES \
+            -L"$OUT_LIBS" "$f" $LIBS -lstratum \
+            -o "$OUT_BINS/$name"
     done
 fi
 
-echo "[*] Done! Run with: bash scripts/run_example.sh <name>"
+# ── package module zip ────────────────────────────────────────────────────────
+echo "[*] Packaging module zip..."
+
+STAGING=$(mktemp -d)
+cp -r "$DEVICE_DIR/stratum-boot/." "$STAGING/"
+cp "$OUT_LIBS/libstratum.so"   "$STAGING/system/lib64/libstratum.so"
+cp "$OUT_LIBS/stub.so"         "$STAGING/system/lib64/stub.so"
+cp "$OUT_BINS/stratum_binary"  "$STAGING/system/bin/stratum_binary"
+
+MODULE_ZIP="$DEVICE_DIR/out/${DEVICE}-stratum-boot.zip"
+cd "$STAGING"
+zip -r9 "$OLDPWD/$MODULE_ZIP" . > /dev/null
+cd "$OLDPWD"
+rm -rf "$STAGING"
+
+echo ""
+echo "[*] Done!"
+echo "    libs : $OUT_LIBS/"
+echo "    bins : $OUT_BINS/"
+echo "    zip  : $MODULE_ZIP"

@@ -117,6 +117,9 @@ struct Stratum::Impl {
 
     std::atomic_bool running{true};
 
+    // pipe used to wake the input thread when stop() is called
+    int stopPipe[2] = {-1, -1};
+
     std::function<void(float)>             frameCb;
     std::function<void(const KeyEvent&)>   keyCb;
     std::function<void(const TouchEvent&)> touchCb;
@@ -132,13 +135,15 @@ struct Stratum::Impl {
     void dispatchTouch(InputDev& dev, ProtoAState& ts, float t) {
         float nx = (float)(ts.x - dev.absXmin) / (dev.absXmax - dev.absXmin);
         float ny = (float)(ts.y - dev.absYmin) / (dev.absYmax - dev.absYmin);
+        nx = nx < 0.f ? 0.f : (nx > 1.f ? 1.f : nx);
+        ny = ny < 0.f ? 0.f : (ny > 1.f ? 1.f : ny);
         if (ts.trackingId >= 0 && !ts.down) {
             ts.down = true;
             if (touchCb) touchCb({0, ts.trackingId, TouchAction::DOWN, nx, ny, t});
         } else if (ts.trackingId == -1 && ts.down) {
             ts.down = false;
             if (touchCb) touchCb({0, 0, TouchAction::UP, nx, ny, t});
-        } else if (ts.down) {
+        } else if (ts.down && ts.trackingId >= 0) {
             if (touchCb) touchCb({0, ts.trackingId, TouchAction::MOVE, nx, ny, t});
         }
     }
@@ -159,24 +164,29 @@ struct Stratum::Impl {
                                               std::vector<Slot>(StratumConfig::TOUCH_SLOTS));
         std::vector<int>               curSlot(inputDevs.size(), 0);
         std::vector<pollfd>            pfds;
-        pfds.reserve(inputDevs.size());
 
         while (running) {
             pfds.clear();
+            // watch stop pipe first
+            pfds.push_back({stopPipe[0], POLLIN, 0});
             for (auto& dev : inputDevs)
                 pfds.push_back({dev.fd.get(), POLLIN, 0});
 
             poll(pfds.data(), pfds.size(), 16);
 
+            // stop pipe triggered — exit cleanly
+            if (pfds[0].revents & POLLIN) break;
+
             for (size_t i = 0; i < inputDevs.size(); i++) {
-                if (!(pfds[i].revents & POLLIN)) continue;
+                if (!(pfds[i + 1].revents & POLLIN)) continue;
                 auto& dev = inputDevs[i];
                 struct input_event ev;
 
                 while (read(dev.fd.get(), &ev, sizeof(ev)) == sizeof(ev)) {
+                    if (!running) continue; // drain without dispatching
                     float t = mono_now();
 
-                    if (ev.type == EV_KEY && dev.hasKeys && keyCb) {
+                    if (ev.type == EV_KEY && dev.hasKeys && keyCb && running) {
                         if (ev.value == 1) {
                             keyCb({ev.code, KeyAction::DOWN, t});
                             repeatCode = ev.code;
@@ -197,7 +207,7 @@ struct Stratum::Impl {
                             else if (ev.code == ABS_MT_POSITION_X)  ts.x = ev.value;
                             else if (ev.code == ABS_MT_POSITION_Y)  ts.y = ev.value;
                         }
-                        if (ev.type == EV_SYN && ev.code == SYN_REPORT)
+                        if (ev.type == EV_SYN && ev.code == SYN_REPORT && running)
                             dispatchTouch(dev, ts, t);
 
                     } else if (proto == 2) {
@@ -219,7 +229,7 @@ struct Stratum::Impl {
                             } else if (ev.code == ABS_MT_POSITION_X) protoB[i][curSlot[i]].x = ev.value;
                             else if   (ev.code == ABS_MT_POSITION_Y) protoB[i][curSlot[i]].y = ev.value;
                         }
-                        if (ev.type == EV_SYN && ev.code == SYN_REPORT)
+                        if (ev.type == EV_SYN && ev.code == SYN_REPORT && running)
                             dispatchTouchB(dev, protoB[i], t);
 
                     } else {
@@ -238,7 +248,7 @@ struct Stratum::Impl {
                 }
             }
 
-            if (repeatCode >= 0 && keyCb) {
+            if (repeatCode >= 0 && keyCb && running) {
                 float t = mono_now();
                 if (t >= repeatNext) {
                     keyCb({repeatCode, KeyAction::REPEAT, t});
@@ -252,21 +262,42 @@ struct Stratum::Impl {
 Stratum::Stratum() : mImpl(std::make_unique<Impl>()) {}
 
 Stratum::~Stratum() {
+    // signal stop and wake input thread via pipe before joining
     mImpl->running = false;
+    if (mImpl->stopPipe[1] >= 0) {
+        char b = 1;
+        write(mImpl->stopPipe[1], &b, 1);
+    }
     if (mImpl->inputThread.joinable())
         mImpl->inputThread.join();
+    if (mImpl->stopPipe[0] >= 0) close(mImpl->stopPipe[0]);
+    if (mImpl->stopPipe[1] >= 0) close(mImpl->stopPipe[1]);
+
+    // hide and detach surface before tearing down EGL
+    if (mImpl->ctrl != nullptr) {
+        SurfaceComposerClient::Transaction()
+            .hide(mImpl->ctrl)
+            .apply(true);
+    }
+    mImpl->surf.clear();
+
     if (mImpl->dpy != EGL_NO_DISPLAY) {
         eglMakeCurrent(mImpl->dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
         if (mImpl->ctx   != EGL_NO_CONTEXT) eglDestroyContext(mImpl->dpy, mImpl->ctx);
         if (mImpl->esurf != EGL_NO_SURFACE) eglDestroySurface(mImpl->dpy, mImpl->esurf);
         eglTerminate(mImpl->dpy);
+        mImpl->dpy   = EGL_NO_DISPLAY;
+        mImpl->esurf = EGL_NO_SURFACE;
+        mImpl->ctx   = EGL_NO_CONTEXT;
     }
-    mImpl->surf.clear();
+
     mImpl->ctrl.clear();
     mImpl->session.clear();
 }
 
 bool Stratum::init() {
+    if (pipe2(mImpl->stopPipe, O_CLOEXEC) != 0) return false;
+
     mImpl->session = new SurfaceComposerClient();
     if (mImpl->session->initCheck() != 0) return false;
 
@@ -324,7 +355,18 @@ bool Stratum::init() {
 void Stratum::onFrame(std::function<void(float t)> cb)           { mImpl->frameCb  = cb; }
 void Stratum::onKey(std::function<void(const KeyEvent&)> cb)     { mImpl->keyCb    = cb; }
 void Stratum::onTouch(std::function<void(const TouchEvent&)> cb) { mImpl->touchCb  = cb; }
-void Stratum::stop()    { mImpl->running = false; }
+
+void Stratum::stop() {
+    if (!mImpl->running.exchange(false)) return; // already stopped
+    // wake the input thread immediately so it stops dispatching callbacks
+    if (mImpl->stopPipe[1] >= 0) {
+        char b = 1;
+        write(mImpl->stopPipe[1], &b, 1);
+        close(mImpl->stopPipe[1]);
+        mImpl->stopPipe[1] = -1;
+    }
+}
+
 int   Stratum::width()  const { return mImpl->w; }
 int   Stratum::height() const { return mImpl->h; }
 float Stratum::aspect() const { return (float)mImpl->w / (float)mImpl->h; }
@@ -360,8 +402,12 @@ void Stratum::run() {
         float t = (now.tv_sec  - start.tv_sec) +
                   (now.tv_nsec - start.tv_nsec) / 1e9f;
         if (mImpl->frameCb) mImpl->frameCb(t);
+        if (!mImpl->running) break; // frameCb may have called stop()
         eglSwapBuffers(mImpl->dpy, mImpl->esurf);
     }
 
-    mImpl->inputThread.join();
+    // stop() already wrote the pipe; just join — input thread is done or nearly done
+    if (mImpl->inputThread.joinable())
+        mImpl->inputThread.join();
+    // input thread is fully dead here — safe to return into app destructors
 }

@@ -1,6 +1,6 @@
 # build outputs
-./bin/
-*.zip
+devices/*/out/bins/
+devices/*/out/libs/
 
 # temp
 *.o

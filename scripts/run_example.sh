@@ -1,17 +1,29 @@
 #!/bin/bash
 ROOT=$(realpath $(dirname "$0")/..)
 
-if [ -z "$1" ]; then
-    echo "Usage: bash scripts/run_example.sh <example>"
-    echo "       bash scripts/run_example.sh --default"
-    echo "Available: $(ls $ROOT/bin | grep -v stub.so | grep -v libstratum.so | tr '\n' ' ')"
+if [ -z "$1" ] || [ -z "$2" ]; then
+    echo "usage: $0 <device> <app>"
     exit 1
 fi
 
-if [ "$1" = "--default" ]; then
-    BIN=$ROOT/stratum-boot/system/bin/stratum_binary
-    LIBS=$ROOT/stratum-boot/system/lib64
-    su -c "LD_PRELOAD=$LIBS/stub.so LD_LIBRARY_PATH=$LIBS:/system/lib64:/vendor/lib64 $BIN ${@:2}"
-else
-    su -c "EXTRAS_DIR=$ROOT/bin LD_PRELOAD=$ROOT/bin/stub.so LD_LIBRARY_PATH=$ROOT/bin:/system/lib64:/vendor/lib64 $ROOT/bin/$1 ${@:2}"
+DEVICE=$1
+APP=$2
+DEVICE_DIR="$ROOT/devices/$DEVICE"
+OUT_BINS="$DEVICE_DIR/out/bins"
+OUT_LIBS="$DEVICE_DIR/out/libs"
+
+if [ ! -d "$DEVICE_DIR" ]; then
+    echo "error: '$DEVICE_DIR' not found"
+    exit 1
 fi
+
+if [ ! -f "$OUT_BINS/$APP" ]; then
+    echo "error: '$APP' not found in $OUT_BINS"
+    echo "available: $(ls $OUT_BINS | grep -v stratum_binary | tr '\n' ' ')"
+    exit 1
+fi
+
+su -c "EXTRAS_DIR=$OUT_BINS \
+       LD_PRELOAD=$OUT_LIBS/stub.so \
+       LD_LIBRARY_PATH=$OUT_LIBS:/system/lib64:/vendor/lib64 \
+       $OUT_BINS/$APP ${@:3}"

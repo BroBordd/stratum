@@ -7,7 +7,7 @@ inline float parseTimeout(int argc, char** argv) {
         const char* a = argv[i];
         if (!strcmp(a, "--help") || !strcmp(a, "-h")) {
             printf("usage: <example> [timeout]\n");
-            printf("  timeout   seconds to run (default 5, 0 = unlimited)\n");
+            printf("  timeout   seconds to run (0 = unlimited)\n");
             printf("  -t N      same as passing N directly\n");
             printf("  --timeout=N\n");
             exit(0);
@@ -21,5 +21,5 @@ inline float parseTimeout(int argc, char** argv) {
         if (i + 1 < argc && a[0] == '-' && a[1] == 't') return atof(argv[++i]);
         if (a[0] >= '0' && a[0] <= '9') return atof(a);
     }
-    return 5.0f;
+    return 0.0f; // unlimited by default
 }
