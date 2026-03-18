@@ -133,27 +133,13 @@ float t = parseTimeout(argc, argv);
 
 ## Examples
 
-Bundled via [stratum-apps](https://github.com/BroBordd/stratum-apps) submodule at `apps/`.
+Examples are maintained in a separate repository and linked here as a submodule at `apps/`:
 
-### Utils
+```bash
+git submodule update --init
+```
 
-| File | Description |
-|---|---|
-| `terminal.cpp` | PTY-backed terminal emulator with touch keyboard |
-| `calculator.cpp` | Lightweight expression calculator |
-| `brickbreaker.cpp` | Arcade-style brick breaker game |
-| `signal.cpp` | Signal/waveform visualiser |
-| `sysinfo.cpp` | System information viewer |
-
-### Demos
-
-| File | Description |
-|---|---|
-| `bump.cpp` | Physics bounce demo |
-| `magma.cpp` | Lava lamp shader |
-| `menu.cpp` | Basic selection menu |
-| `paint.cpp` | Touch drawing canvas |
-| `piano.cpp` | Touch piano keys |
+See [stratum-apps](https://github.com/BroBordd/stratum-apps) for the full list of available utils and demos.
 
 ---
 
