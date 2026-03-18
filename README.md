@@ -2,24 +2,24 @@
 
 Native Android overlay framework. Fullscreen OpenGL ES 2.0 surface, raw input, ~60fps render loop. No Activity, no framework, no JVM.
 
-Talks directly to SurfaceFlinger via `SurfaceComposerClient`, creates a surface at `INT_MAX` layer, reads input from `/dev/input/` event nodes in a dedicated thread.
+Talks directly to SurfaceFlinger via `SurfaceComposerClient`, creates a surface at `INT_MAX` layer, reads raw input events from `/dev/input/` in a dedicated thread.
 
 ---
 
 ## Device Support
 
-Stratum is device-specific by design. Each supported device lives in its own folder under `devices/`:
+Stratum is device-specific by design. Each supported device lives under `devices/`:
 
 ```
 devices/
-└── a14/
+└── <model>/
     ├── StratumConfig.h   ← device paths and touch parameters
-    ├── app.cpp           ← your application code
+    ├── app.cpp           ← your application entry point
     ├── stratum-boot/     ← KernelSU module source
-    └── out/              ← build output (bins, libs, zip)
+    └── out/              ← build output (gitignored)
 ```
 
-To add a new device, fork the repo and create `devices/<model>/` with at minimum `StratumConfig.h` and `app.cpp`. Use `src/default.cpp` as a starting point for `app.cpp`.
+To add a new device, fork the repo and create `devices/<model>/` with `StratumConfig.h` and `app.cpp`. Use `src/default.cpp` as a starting point for `app.cpp`.
 
 ---
 
@@ -27,22 +27,22 @@ To add a new device, fork the repo and create `devices/<model>/` with at minimum
 
 ```bash
 bash scripts/build.sh <device>          # build everything
-bash scripts/build.sh <device> -l       # lib + app only, skip examples
-bash scripts/build.sh <device> -e       # examples only, skip lib
-bash scripts/build.sh <device> piano    # build specific example(s)
+bash scripts/build.sh <device> -l       # lib only (no examples)
+bash scripts/build.sh <device> -e       # examples only
+bash scripts/build.sh <device> piano    # specific example(s)
 ```
 
 Output goes to `devices/<device>/out/`. A flashable KernelSU module zip is produced at `devices/<device>/out/<device>-stratum-boot.zip`.
 
-Requires Clang targeting `aarch64-linux-android34` and AOSP private headers (included under `include/`).
+Requires Clang targeting `aarch64-linux-android34` and AOSP private headers included under `include/`.
 
 ---
 
 ## Running
 
 ```bash
-bash scripts/run.sh <device>                  # run your app (stratum_binary)
-bash scripts/run_example.sh <device> <app>    # run a bundled example
+bash scripts/run.sh <device>                  # run your app
+bash scripts/run_example.sh <device> <app>    # run a specific example
 ```
 
 ---
@@ -97,10 +97,10 @@ Software repeat fires after `0.5s`, then every `~33ms`.
 namespace StratumConfig {
     const char* TOUCH_DEVICE   = "/dev/input/eventX";
     const char* KEY_DEVICE     = "/dev/input/eventY";
-    const char* KEY_DEVICE2    = "";        // optional second key device
+    const char* KEY_DEVICE2    = "";        // optional
     int  TOUCH_PROTOCOL        = 0;         // 0 = auto, 1 = proto A, 2 = proto B
     int  TOUCH_SLOTS           = 10;
-    int  TOUCH_X_MIN = 0, TOUCH_X_MAX = 0; // 0 = ioctl auto-detect
+    int  TOUCH_X_MIN = 0, TOUCH_X_MAX = 0; // 0 = read from device at runtime
     int  TOUCH_Y_MIN = 0, TOUCH_Y_MAX = 0;
     const char* VIBRATOR       = "/sys/class/timed_output/vibrator/enable";
     const char* BRIGHTNESS     = "/sys/class/leds/lcd-backlight/brightness";
@@ -115,7 +115,7 @@ namespace StratumConfig {
 **StratumText.h** — 8x8 bitmap font, GL texture atlas, no external files.
 
 ```cpp
-Text::init(s.aspect());
+Text::init(s.aspect(), prog);
 Text::draw(str, x, y, size, r, g, b);
 Text::drawWrapped(str, x, y, size, maxW, r, g, b);
 float cw = Text::charW(size, aspect);
@@ -139,7 +139,7 @@ Examples are maintained in a separate repository and linked here as a submodule 
 git submodule update --init
 ```
 
-See [stratum-apps](https://github.com/BroBordd/stratum-apps) for the full list of available utils and demos.
+See [stratum-apps](https://github.com/BroBordd/stratum-apps) for the full list.
 
 ---
 
@@ -147,7 +147,7 @@ See [stratum-apps](https://github.com/BroBordd/stratum-apps) for the full list o
 
 `devices/<model>/stratum-boot/` is a per-device KernelSU module. It installs the runtime to `/system/bin` and `/system/lib64` and launches `stratum_binary` early via `post-fs-data.sh`, before the Android framework starts.
 
-The flashable zip is built automatically by `build.sh` and output to `devices/<model>/out/<model>-stratum-boot.zip`.
+The flashable zip is built automatically and output to `devices/<model>/out/<model>-stratum-boot.zip`.
 
 ---
 
