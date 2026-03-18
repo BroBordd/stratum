@@ -1,6 +1,4 @@
-# build outputs
-devices/*/out/bins/
-devices/*/out/libs/
+#devices/*/out/
 
 # temp
 *.o
@@ -11,5 +9,4 @@ devices/*/out/libs/
 .idea/
 *.swp
 *~
-devices/*/out/
 
