@@ -154,7 +154,6 @@ The flashable zip is built automatically by `build.sh` and output to `devices/<m
 ## Requirements
 
 - Root (KernelSU or Magisk)
-- SELinux permissive (or a policy that allows SurfaceFlinger access)
 - Clang targeting `aarch64-linux-android34`
 
 ---
