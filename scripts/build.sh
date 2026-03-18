@@ -4,12 +4,12 @@ set -e
 ROOT=$(dirname $0)/..
 
 usage() {
-    echo "Usage: $0 <device> [options] [app...]"
-    echo "  -l, --lib-only       build libstratum.so + stub only, skip apps"
-    echo "  -e, --examples-only  skip rebuilding lib (apps only)"
+    echo "usage: $0 <device> [options] [app...]"
+    echo "  -l, --lib-only       build lib + app only, skip examples"
+    echo "  -e, --examples-only  skip rebuilding lib (examples only)"
     echo "  -h, --help           show this help"
     echo ""
-    echo "  app args: specific app name(s) to build (default: all)"
+    echo "  app args: specific example name(s) to build (default: all)"
     echo "  e.g: $0 a14 terminal brickbreaker"
     exit 0
 }
@@ -61,7 +61,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# ── compiler flags ────────────────────────────────────────────────────────────
+# ── compiler flags (shared with build_app.sh) ─────────────────────────────────
 INCLUDES="\
   -I$DEVICE_DIR \
   -I$ROOT/include \
@@ -121,7 +121,6 @@ namespace android {
         virtual int do_compare(const void*, const void*) const { return 0; }
     };
 }
-// force vtable/typeinfo emission
 void* __stub_force() {
     return new android::SortedVectorImpl();
 }
@@ -129,7 +128,6 @@ STUB
     clang++ -shared -fPIC -frtti -target aarch64-linux-android34 \
         -o "$OUT_LIBS/stub.so" "$STUB_SRC"
 
-    # compile stub to object so symbols get baked into libstratum.so
     STUB_OBJ="$OUT_LIBS/stub.o"
     clang++ -fPIC -frtti -target aarch64-linux-android34 \
         -c "$STUB_SRC" -o "$STUB_OBJ"
@@ -145,14 +143,10 @@ STUB
         echo "error: missing $DEVICE_DIR/app.cpp — copy src/default.cpp to get started"
         exit 1
     fi
-    echo "[*] Building app..."
-    clang++ $FLAGS $INCLUDES \
-        "$DEVICE_DIR/app.cpp" $LIBS -lstratum \
-        -o "$OUT_BINS/stratum_binary"
-    chmod +x "$OUT_BINS/stratum_binary"
+    bash "$ROOT/scripts/build_app.sh" "$DEVICE" "$DEVICE_DIR/app.cpp" stratum_binary
 fi
 
-# ── apps ──────────────────────────────────────────────────────────────────────
+# ── examples ──────────────────────────────────────────────────────────────────
 if [[ $BUILD_EXAMPLES -eq 1 ]]; then
     if [[ ${#ONLY[@]} -gt 0 ]]; then
         targets=()
@@ -173,11 +167,7 @@ if [[ $BUILD_EXAMPLES -eq 1 ]]; then
     fi
 
     for f in "${targets[@]}"; do
-        name=$(basename $f .cpp)
-        echo "[*] Building: $name..."
-        clang++ $FLAGS $INCLUDES \
-            -L"$OUT_LIBS" "$f" $LIBS -lstratum \
-            -o "$OUT_BINS/$name"
+        bash "$ROOT/scripts/build_app.sh" "$DEVICE" "$f"
     done
 fi
 
@@ -186,9 +176,9 @@ echo "[*] Packaging module zip..."
 
 STAGING=$(mktemp -d)
 cp -r "$DEVICE_DIR/stratum-boot/." "$STAGING/"
-cp "$OUT_LIBS/libstratum.so"   "$STAGING/system/lib64/libstratum.so"
-cp "$OUT_LIBS/stub.so"         "$STAGING/system/lib64/stub.so"
-cp "$OUT_BINS/stratum_binary"  "$STAGING/system/bin/stratum_binary"
+cp "$OUT_LIBS/libstratum.so"  "$STAGING/system/lib64/libstratum.so"
+cp "$OUT_LIBS/stub.so"        "$STAGING/system/lib64/stub.so"
+cp "$OUT_BINS/stratum_binary" "$STAGING/system/bin/stratum_binary"
 
 MODULE_ZIP="$DEVICE_DIR/out/${DEVICE}-stratum-boot.zip"
 cd "$STAGING"
