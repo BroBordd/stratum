@@ -1,6 +1,7 @@
 #include "Stratum.h"
 #include "StratumText.h"
 #include <GLES2/gl2.h>
+#include <unistd.h>
 #include <linux/input-event-codes.h>
 
 static const char* VSH = R"(
@@ -55,5 +56,5 @@ int main() {
     });
 
     s.run();
-    return 0;
+    _exit(0);
 }
