@@ -12,3 +12,4 @@ devices/*/out/libs/
 *.swp
 *~
 devices/*/out/
+stratum/devices/*/out/
