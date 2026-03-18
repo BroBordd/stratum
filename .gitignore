@@ -11,3 +11,4 @@ devices/*/out/libs/
 .idea/
 *.swp
 *~
+devices/*/out/
