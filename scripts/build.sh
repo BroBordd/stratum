@@ -139,6 +139,9 @@ STUB
         -o "$OUT_LIBS/libstratum.so"
     rm "$STUB_SRC" "$STUB_OBJ"
 
+fi
+
+if [[ $BUILD_LIB -eq 1 && $BUILD_EXAMPLES -eq 1 ]]; then
     if [ ! -f "$DEVICE_DIR/app.cpp" ]; then
         echo "error: missing $DEVICE_DIR/app.cpp — copy src/default.cpp to get started"
         exit 1
