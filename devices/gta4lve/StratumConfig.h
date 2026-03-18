@@ -2,6 +2,9 @@
 
 namespace StratumConfig {
 
+    // sdk
+    constexpr int SDK_VERSION = 31;
+
     // input devices
     constexpr const char* INPUT_DIR       = "/dev/input";
     constexpr const char* TOUCH_DEVICE    = "/dev/input/event4";
@@ -17,6 +20,9 @@ namespace StratumConfig {
     constexpr int TOUCH_Y_MIN = 0;
     constexpr int TOUCH_Y_MAX = 2000;
     constexpr int TOUCH_SLOTS = 10;
+
+    // display orientation: 0 = portrait, 1 = landscape
+    constexpr int ORIENTATION = 1;
 
     // vibrator
     constexpr const char* VIBRATOR        = "/sys/class/timed_output/vibrator/enable";

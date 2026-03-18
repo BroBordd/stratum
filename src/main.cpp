@@ -117,7 +117,6 @@ struct Stratum::Impl {
 
     std::atomic_bool running{true};
 
-    // pipe used to wake the input thread when stop() is called
     int stopPipe[2] = {-1, -1};
 
     std::function<void(float)>             frameCb;
@@ -137,6 +136,8 @@ struct Stratum::Impl {
         float ny = (float)(ts.y - dev.absYmin) / (dev.absYmax - dev.absYmin);
         nx = nx < 0.f ? 0.f : (nx > 1.f ? 1.f : nx);
         ny = ny < 0.f ? 0.f : (ny > 1.f ? 1.f : ny);
+        // swap axes for landscape orientation
+        if (StratumConfig::ORIENTATION == 1) { float tmp = nx; nx = ny; ny = 1.f - tmp; }
         if (ts.trackingId >= 0 && !ts.down) {
             ts.down = true;
             if (touchCb) touchCb({0, ts.trackingId, TouchAction::DOWN, nx, ny, t});
@@ -154,6 +155,7 @@ struct Stratum::Impl {
             if (!sl.active || sl.id < 0) continue;
             float nx = (float)(sl.x - dev.absXmin) / (dev.absXmax - dev.absXmin);
             float ny = (float)(sl.y - dev.absYmin) / (dev.absYmax - dev.absYmin);
+            if (StratumConfig::ORIENTATION == 1) { float tmp = nx; nx = ny; ny = 1.f - tmp; }
             if (touchCb) touchCb({s, sl.id, TouchAction::MOVE, nx, ny, t});
         }
     }
@@ -167,14 +169,12 @@ struct Stratum::Impl {
 
         while (running) {
             pfds.clear();
-            // watch stop pipe first
             pfds.push_back({stopPipe[0], POLLIN, 0});
             for (auto& dev : inputDevs)
                 pfds.push_back({dev.fd.get(), POLLIN, 0});
 
             poll(pfds.data(), pfds.size(), 16);
 
-            // stop pipe triggered — exit cleanly
             if (pfds[0].revents & POLLIN) break;
 
             for (size_t i = 0; i < inputDevs.size(); i++) {
@@ -183,7 +183,7 @@ struct Stratum::Impl {
                 struct input_event ev;
 
                 while (read(dev.fd.get(), &ev, sizeof(ev)) == sizeof(ev)) {
-                    if (!running) continue; // drain without dispatching
+                    if (!running) continue;
                     float t = mono_now();
 
                     if (ev.type == EV_KEY && dev.hasKeys && keyCb && running) {
@@ -219,6 +219,7 @@ struct Stratum::Impl {
                                 auto& sl = protoB[i][s];
                                 float nx = (float)(sl.x - dev.absXmin) / (dev.absXmax - dev.absXmin);
                                 float ny = (float)(sl.y - dev.absYmin) / (dev.absYmax - dev.absYmin);
+                                if (StratumConfig::ORIENTATION == 1) { float tmp = nx; nx = ny; ny = 1.f - tmp; }
                                 if (ev.value >= 0) {
                                     sl.id = ev.value; sl.active = true;
                                     if (touchCb) touchCb({s, sl.id, TouchAction::DOWN, nx, ny, t});
@@ -262,7 +263,6 @@ struct Stratum::Impl {
 Stratum::Stratum() : mImpl(std::make_unique<Impl>()) {}
 
 Stratum::~Stratum() {
-    // signal stop and wake input thread via pipe before joining
     mImpl->running = false;
     if (mImpl->stopPipe[1] >= 0) {
         char b = 1;
@@ -273,7 +273,6 @@ Stratum::~Stratum() {
     if (mImpl->stopPipe[0] >= 0) close(mImpl->stopPipe[0]);
     if (mImpl->stopPipe[1] >= 0) close(mImpl->stopPipe[1]);
 
-    // hide and detach surface before tearing down EGL
     if (mImpl->ctrl != nullptr) {
         SurfaceComposerClient::Transaction()
             .hide(mImpl->ctrl)
@@ -310,6 +309,9 @@ bool Stratum::init() {
 
     mImpl->w = mode.resolution.getWidth();
     mImpl->h = mode.resolution.getHeight();
+
+    // swap dimensions for landscape orientation
+    if (StratumConfig::ORIENTATION == 1) std::swap(mImpl->w, mImpl->h);
 
     mImpl->ctrl = mImpl->session->createSurface(
         String8("stratum"), mImpl->w, mImpl->h,
@@ -348,7 +350,8 @@ bool Stratum::init() {
     eglSwapInterval(mImpl->dpy, 1);
 
     mImpl->inputDevs = open_input_devices();
-    Stratum::log("stratum", "init() done, %zu input devices", mImpl->inputDevs.size());
+    Stratum::log("stratum", "init() done, w=%d h=%d, %zu input devices",
+                 mImpl->w, mImpl->h, mImpl->inputDevs.size());
     return true;
 }
 
@@ -357,8 +360,7 @@ void Stratum::onKey(std::function<void(const KeyEvent&)> cb)     { mImpl->keyCb 
 void Stratum::onTouch(std::function<void(const TouchEvent&)> cb) { mImpl->touchCb  = cb; }
 
 void Stratum::stop() {
-    if (!mImpl->running.exchange(false)) return; // already stopped
-    // wake the input thread immediately so it stops dispatching callbacks
+    if (!mImpl->running.exchange(false)) return;
     if (mImpl->stopPipe[1] >= 0) {
         char b = 1;
         write(mImpl->stopPipe[1], &b, 1);
@@ -402,12 +404,10 @@ void Stratum::run() {
         float t = (now.tv_sec  - start.tv_sec) +
                   (now.tv_nsec - start.tv_nsec) / 1e9f;
         if (mImpl->frameCb) mImpl->frameCb(t);
-        if (!mImpl->running) break; // frameCb may have called stop()
+        if (!mImpl->running) break;
         eglSwapBuffers(mImpl->dpy, mImpl->esurf);
     }
 
-    // stop() already wrote the pipe; just join — input thread is done or nearly done
     if (mImpl->inputThread.joinable())
         mImpl->inputThread.join();
-    // input thread is fully dead here — safe to return into app destructors
 }
