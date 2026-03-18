@@ -175,6 +175,7 @@ if [[ $BUILD_EXAMPLES -eq 1 ]]; then
 fi
 
 # ── package module zip ────────────────────────────────────────────────────────
+if [[ $BUILD_LIB -eq 1 && $BUILD_EXAMPLES -eq 1 ]]; then
 echo "[*] Packaging module zip..."
 
 STAGING="$DEVICE_DIR/out/.staging"
@@ -191,8 +192,9 @@ cd "$STAGING" && zip -r9 "$MODULE_ZIP" . > /dev/null
 cd "$ROOT"
 rm -rf "$STAGING"
 
-echo ""
-echo "[*] Done!"
-echo "    libs : $OUT_LIBS/"
-echo "    bins : $OUT_BINS/"
-echo "    zip  : $MODULE_ZIP"
+    echo ""
+    echo "[*] Done!"
+    echo "    libs : $OUT_LIBS/"
+    echo "    bins : $OUT_BINS/"
+    echo "    zip  : $MODULE_ZIP"
+fi
