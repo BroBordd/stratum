@@ -10,8 +10,3 @@
 
 # outputs
 devices/*/out/
-
-# debug
-!devices/gta4lve/out/
-!devices/gta4lve/out/bins/
-!devices/gta4lve/out/bins/stratum_binary
