@@ -179,8 +179,8 @@ echo "[*] Packaging module zip..."
 
 STAGING="$DEVICE_DIR/out/.staging"
 rm -rf "$STAGING"
-mkdir -p "$STAGING/system/lib64" "$STAGING/system/bin"
 cp -r "$DEVICE_DIR/stratum-boot/." "$STAGING/"
+mkdir -p "$STAGING/system/lib64" "$STAGING/system/bin"
 
 cp "$OUT_LIBS/libstratum.so"  "$STAGING/system/lib64/libstratum.so"
 cp "$OUT_LIBS/stub.so"        "$STAGING/system/lib64/stub.so"
