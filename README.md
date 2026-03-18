@@ -6,6 +6,47 @@ Talks directly to SurfaceFlinger via `SurfaceComposerClient`, creates a surface 
 
 ---
 
+## Device Support
+
+Stratum is device-specific by design. Each supported device lives in its own folder under `devices/`:
+
+```
+devices/
+└── a14/
+    ├── StratumConfig.h   ← device paths and touch parameters
+    ├── app.cpp           ← your application code
+    ├── stratum-boot/     ← KernelSU module source
+    └── out/              ← build output (bins, libs, zip)
+```
+
+To add a new device, fork the repo and create `devices/<model>/` with at minimum `StratumConfig.h` and `app.cpp`. Use `src/default.cpp` as a starting point for `app.cpp`.
+
+---
+
+## Building
+
+```bash
+bash scripts/build.sh <device>          # build everything
+bash scripts/build.sh <device> -l       # lib + app only, skip examples
+bash scripts/build.sh <device> -e       # examples only, skip lib
+bash scripts/build.sh <device> piano    # build specific example(s)
+```
+
+Output goes to `devices/<device>/out/`. A flashable KernelSU module zip is produced at `devices/<device>/out/<device>-stratum-boot.zip`.
+
+Requires Clang targeting `aarch64-linux-android34` and AOSP private headers (included under `include/`).
+
+---
+
+## Running
+
+```bash
+bash scripts/run.sh <device>                  # run your app (stratum_binary)
+bash scripts/run_example.sh <device> <app>    # run a bundled example
+```
+
+---
+
 ## API
 
 ```cpp
@@ -14,8 +55,8 @@ s.init();
 s.onFrame([](float t) { /* t = seconds since run() */ });
 s.onKey([](const KeyEvent& e) { /* e.code, e.action, e.time */ });
 s.onTouch([](const TouchEvent& e) { /* e.x, e.y, normalised 0..1 */ });
-s.run();   // blocks
-s.stop();  // call from any callback
+s.run();   // blocks until stop()
+s.stop();  // safe to call from any callback
 
 s.width();    // px
 s.height();   // px
@@ -50,13 +91,13 @@ Software repeat fires after `0.5s`, then every `~33ms`.
 
 ## Configuration
 
-`include/StratumConfig.h` — set device paths and touch parameters for your target:
+`devices/<model>/StratumConfig.h` — device-specific paths and touch parameters:
 
 ```cpp
 namespace StratumConfig {
     const char* TOUCH_DEVICE   = "/dev/input/eventX";
     const char* KEY_DEVICE     = "/dev/input/eventY";
-    const char* KEY_DEVICE2    = "";        // optional
+    const char* KEY_DEVICE2    = "";        // optional second key device
     int  TOUCH_PROTOCOL        = 0;         // 0 = auto, 1 = proto A, 2 = proto B
     int  TOUCH_SLOTS           = 10;
     int  TOUCH_X_MIN = 0, TOUCH_X_MAX = 0; // 0 = ioctl auto-detect
@@ -80,16 +121,17 @@ Text::drawWrapped(str, x, y, size, maxW, r, g, b);
 float cw = Text::charW(size, aspect);
 ```
 
-**StratumArgs.h** — timeout argument parser.
+**StratumArgs.h** — timeout argument parser for examples.
 
 ```cpp
 float t = parseTimeout(argc, argv);
 // accepts: N, -t N, -t=N, --timeout=N, --help
+// default: 0 (unlimited)
 ```
 
 ---
 
-## Apps
+## Examples
 
 Bundled via [stratum-apps](https://github.com/BroBordd/stratum-apps) submodule at `apps/`.
 
@@ -97,57 +139,37 @@ Bundled via [stratum-apps](https://github.com/BroBordd/stratum-apps) submodule a
 
 | File | Description |
 |---|---|
-| `apps/utils/terminal.cpp` | PTY-backed terminal emulator with touch keyboard |
-| `apps/utils/calculator.cpp` | Lightweight expression calculator |
-| `apps/utils/brickbreaker.cpp` | Arcade-style brick breaker game |
-| `apps/utils/signal.cpp` | Signal/waveform visualiser |
-| `apps/utils/sysinfo.cpp` | System information viewer |
+| `terminal.cpp` | PTY-backed terminal emulator with touch keyboard |
+| `calculator.cpp` | Lightweight expression calculator |
+| `brickbreaker.cpp` | Arcade-style brick breaker game |
+| `signal.cpp` | Signal/waveform visualiser |
+| `sysinfo.cpp` | System information viewer |
 
 ### Demos
 
 | File | Description |
 |---|---|
-| `apps/demos/bump.cpp` | Physics bounce demo |
-| `apps/demos/magma.cpp` | Lava lamp shader |
-| `apps/demos/menu.cpp` | Basic selection menu |
-| `apps/demos/paint.cpp` | Touch drawing canvas |
-| `apps/demos/piano.cpp` | Touch piano keys |
-
-Run with:
-
-```bash
-scripts/run_example.sh <name>
-```
+| `bump.cpp` | Physics bounce demo |
+| `magma.cpp` | Lava lamp shader |
+| `menu.cpp` | Basic selection menu |
+| `paint.cpp` | Touch drawing canvas |
+| `piano.cpp` | Touch piano keys |
 
 ---
 
 ## KernelSU Module
 
-`stratum-boot/` is a KSU module template. It installs the runtime to `/system/bin` and `/system/lib64` and launches your binary early via `post-fs-data.sh`, before the Android framework starts. Replace `stratum_binary` with your executable.
+`devices/<model>/stratum-boot/` is a per-device KernelSU module. It installs the runtime to `/system/bin` and `/system/lib64` and launches `stratum_binary` early via `post-fs-data.sh`, before the Android framework starts.
 
-```
-stratum-boot/
-├── module.prop
-├── post-fs-data.sh
-└── system/
-    ├── bin/stratum, stratum_binary
-    └── lib64/libstratum.so, stub.so
-```
-
-Build with `scripts/build_module.sh`.
+The flashable zip is built automatically by `build.sh` and output to `devices/<model>/out/<model>-stratum-boot.zip`.
 
 ---
 
-## Building
+## Requirements
 
-Requires AOSP tree or a vendor NDK exposing private framework libraries.
-
-```
-LOCAL_SHARED_LIBRARIES := libgui libui libEGL libGLESv2 liblog libutils
-LOCAL_CPPFLAGS         := -std=c++17
-```
-
-The binary must run as root or hold `CAP_SYS_ADMIN` to access input devices and SurfaceFlinger.
+- Root (KernelSU or Magisk)
+- SELinux permissive (or a policy that allows SurfaceFlinger access)
+- Clang targeting `aarch64-linux-android34`
 
 ---
 
