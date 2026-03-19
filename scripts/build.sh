@@ -138,10 +138,6 @@ namespace android {
 void* __stub_force() {
     return new android::SortedVectorImpl();
 }
-namespace android { namespace gui {
-    class LayerMetadata { public: virtual ~LayerMetadata() {} };
-}}
-void* __stub_force2() { return new android::gui::LayerMetadata(); }
 STUB
     clang++ -shared -fPIC -frtti -target aarch64-linux-android${SDK} \
         -o "$OUT_LIBS/stub.so" "$STUB_SRC"
