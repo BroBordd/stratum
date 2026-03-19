@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Stratum — Native Android Overlay Framework</title>
 <style>
   :root {
@@ -117,7 +117,7 @@
     border-radius: 10px; padding: 18px 22px;
     font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
     font-size: 0.82rem; line-height: 1.95; overflow-x: auto; margin: 14px 0;
-    white-space: pre;
+    white-space: pre; max-width: 100%;
   }
   .c  { color: var(--muted); }
   .k  { color: var(--accent); }
@@ -125,7 +125,7 @@
   .t  { color: var(--text); }
   .fn { color: #67e8f9; }
 
-  .api-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; margin: 12px 0; }
+  .api-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; margin: 12px 0; display: block; overflow-x: auto; }
   .api-table th {
     text-align: left; padding: 9px 14px;
     font-size: 0.62rem; letter-spacing: 0.15em; text-transform: uppercase;
