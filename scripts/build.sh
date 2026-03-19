@@ -109,7 +109,7 @@ INCLUDES="\
   -I$ROOT/include/v$SDK/arm64/include/system/libhwbinder/include \
   -I$ROOT/include/logging/liblog/include"
 
-FLAGS="-std=c++17 -O2 -march=armv8-a -target aarch64-linux-android${SDK} -D__BIONIC__ -frtti -w -include $ROOT/include/compat.h -static-libstdc++"
+FLAGS="-std=c++17 -O2 -march=armv8-a -target aarch64-linux-android${SDK} -D__BIONIC__ -frtti -w -include $ROOT/include/compat.h "
 LIBS="-L/system/lib64 -lgui -lui -lEGL -lGLESv2 -lbinder -lutils -llog -Wl,--allow-shlib-undefined -Wl,--unresolved-symbols=ignore-all"
 
 # ── lib ───────────────────────────────────────────────────────────────────────
